@@ -1,0 +1,73 @@
+/**
+ * File: index.css
+ * Version: v1.4.0
+ * Last Updated: 2026-10-02
+ * Changes:
+ * - Добавени анимации за събиране и прибиране на картите към победителя (Север, Юг, Изток, Запад).
+ * - Оптимизирани траектории за хвърляне и прибиране на взятката.
+ */
+
+@import "tailwindcss";
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #020617;
+  color: #f8fafc;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+}
+
+/* Анимации при хвърляне на карта към центъра */
+@keyframes throwFromSouth {
+  0% { transform: translate(0, 140px) scale(0.8); opacity: 0.5; }
+  100% { transform: translate(0, 0) scale(1); opacity: 1; }
+}
+
+@keyframes throwFromNorth {
+  0% { transform: translate(0, -140px) scale(0.8); opacity: 0.5; }
+  100% { transform: translate(0, 0) scale(1); opacity: 1; }
+}
+
+@keyframes throwFromWest {
+  0% { transform: translate(-180px, 0) scale(0.8); opacity: 0.5; }
+  100% { transform: translate(0, 0) scale(1); opacity: 1; }
+}
+
+@keyframes throwFromEast {
+  0% { transform: translate(180px, 0) scale(0.8); opacity: 0.5; }
+  100% { transform: translate(0, 0) scale(1); opacity: 1; }
+}
+
+.anim-throw-south { animation: throwFromSouth 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.anim-throw-north { animation: throwFromNorth 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.anim-throw-west { animation: throwFromWest 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.anim-throw-east { animation: throwFromEast 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+/* Анимации при прибиране на картите към победителя */
+@keyframes collectToSouth {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(0, 220px) scale(0.2); opacity: 0; }
+}
+
+@keyframes collectToNorth {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(0, -220px) scale(0.2); opacity: 0; }
+}
+
+@keyframes collectToWest {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(-280px, 0) scale(0.2); opacity: 0; }
+}
+
+@keyframes collectToEast {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(280px, 0) scale(0.2); opacity: 0; }
+}
+
+.anim-collect-south { animation: collectToSouth 0.65s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-north { animation: collectToNorth 0.65s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-west { animation: collectToWest 0.65s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-east { animation: collectToEast 0.65s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
