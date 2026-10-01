@@ -2,17 +2,16 @@
   "name": "belot-online",
   "version": "1.0.0",
   "scripts": {
-    "start": "npx tsx server.ts",
-    "dev": "npx tsx server.ts"
+    "start": "node --experimental-strip-types server.ts",
+    "dev": "node --experimental-strip-types server.ts"
   },
   "dependencies": {
-    "ws": "^8.21.3"
+    "ws": "^8.21.3",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
     "@types/ws": "^8.18.1",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.2"
+    "typescript": "^7.0.2"
   }
 }
