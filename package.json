@@ -1,4 +1,10 @@
 {
+  "name": "belot-online",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "npx tsx server.ts",
+    "dev": "npx tsx server.ts"
+  },
   "dependencies": {
     "ws": "^8.21.3"
   },
