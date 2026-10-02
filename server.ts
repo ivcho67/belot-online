@@ -13,29 +13,6 @@ export interface Card {
   rank: Rank;
 }
 
-export interface DeclarationItem {
-  id: string;
-  type: string;
-  points: number;
-  label?: string;
-  cards: Card[];
-}
-
-export interface RoundSummary {
-  contractTitle: string;
-  belotPointsNS: number;
-  belotPointsEW: number;
-  declarationsNS: { label: string; points: number; isCrossed?: boolean }[];
-  declarationsEW: { label: string; points: number; isCrossed?: boolean }[];
-  handPointsNS: number;
-  handPointsEW: number;
-  totalPointsNS: number;
-  totalPointsEW: number;
-  outcomeText: string;
-  scoreAddedNS: number;
-  scoreAddedEW: number;
-}
-
 const SUITS: Suit[] = ['CLUBS', 'DIAMONDS', 'HEARTS', 'SPADES'];
 const RANKS: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
@@ -83,11 +60,9 @@ class BelotGameEngine {
   public tricksWon = { NORTH_SOUTH: 0, EAST_WEST: 0 };
   public rawCardPoints = { NORTH_SOUTH: 0, EAST_WEST: 0 };
   public scores = { NORTH_SOUTH: 0, EAST_WEST: 0 };
-  public hangingPoints: number = 0;
-  public acceptedDeclarations: { player: PlayerPosition; type: string; points: number; label?: string }[] = [];
   public isResolvingTrick: boolean = false;
   public trickWinner?: PlayerPosition;
-  public roundSummary: RoundSummary | null = null;
+  public lastAction?: { player: PlayerPosition; text: string };
 
   constructor() {
     this.startNewRound();
@@ -109,8 +84,7 @@ class BelotGameEngine {
     this.rawCardPoints = { NORTH_SOUTH: 0, EAST_WEST: 0 };
     this.isResolvingTrick = false;
     this.trickWinner = undefined;
-    this.acceptedDeclarations = [];
-    this.roundSummary = null;
+    this.lastAction = undefined;
 
     this.phase = 'CUTTING';
     this.cutter = NEXT_PLAYER[this.dealer];
@@ -158,7 +132,7 @@ class BelotGameEngine {
 
     if (bidType === 'PASS') {
       this.auction.consecutivePasses++;
-      this.auction.bidsHistory.push({ player, bidType: 'PASS' });
+      this.lastAction = { player, text: 'ПАС' };
 
       if (!this.auction.currentContract && this.auction.consecutivePasses >= 4) {
         this.dealer = NEXT_PLAYER[this.dealer];
@@ -178,15 +152,7 @@ class BelotGameEngine {
       this.auction.declarer = player;
       this.auction.multiplier = 'NORMAL';
       this.auction.consecutivePasses = 0;
-      this.auction.bidsHistory.push({ player, bidType: 'CONTRACT', contract });
-    } else if (bidType === 'CONTRA') {
-      this.auction.multiplier = 'CONTRA';
-      this.auction.consecutivePasses = 0;
-      this.auction.bidsHistory.push({ player, bidType: 'CONTRA' });
-    } else if (bidType === 'RECONTRA') {
-      this.auction.multiplier = 'RECONTRA';
-      this.auction.consecutivePasses = 0;
-      this.auction.bidsHistory.push({ player, bidType: 'RECONTRA' });
+      this.lastAction = { player, text: contract };
     }
 
     this.currentPlayer = NEXT_PLAYER[this.currentPlayer];
@@ -290,68 +256,18 @@ class BelotGameEngine {
     return true;
   }
 
-  public playCard(player: PlayerPosition, card: Card, declareBelot: boolean = false, declarations?: DeclarationItem[]) {
+  public playCard(player: PlayerPosition, card: Card) {
     if (this.phase !== 'PLAYING' || this.currentPlayer !== player || this.isResolvingTrick) return;
     if (!this.isCardValidForPlay(player, card)) return;
 
     this.hands[player] = this.hands[player].filter(c => c.id !== card.id);
     this.currentTrickCards.push({ player, card });
 
-    if (this.currentTrickNumber === 1 && declarations && declarations.length > 0) {
-      for (const d of declarations) {
-        this.acceptedDeclarations.push({
-          player,
-          type: d.type,
-          points: d.points,
-          label: d.label
-        });
-      }
-    }
-
-    if (declareBelot) {
-      this.acceptedDeclarations.push({
-        player,
-        type: 'BELOT',
-        points: 20,
-        label: 'Белот (+20)'
-      });
-    }
-
     if (this.currentTrickCards.length === 4) {
       this.resolveCurrentTrick();
     } else {
       this.currentPlayer = NEXT_PLAYER[this.currentPlayer];
     }
-  }
-
-  public claimRemainingTricks(player: PlayerPosition) {
-    if (this.phase !== 'PLAYING') return;
-
-    const contract = this.auction.currentContract!;
-    let totalPoints = 0;
-    const isNS = (player === 'SOUTH' || player === 'NORTH');
-
-    for (const p of ['NORTH', 'EAST', 'SOUTH', 'WEST'] as PlayerPosition[]) {
-      for (const c of this.hands[p]) {
-        const isTrump = contract === 'ALL_TRUMP' || (contract !== 'NO_TRUMP' && c.suit === contract);
-        totalPoints += isTrump ? TRUMP_VALUES[c.rank] : NON_TRUMP_VALUES[c.rank];
-      }
-      this.hands[p] = [];
-    }
-
-    totalPoints += 10;
-    if (isNS) {
-      this.rawCardPoints.NORTH_SOUTH += totalPoints;
-      this.tricksWon.NORTH_SOUTH += (8 - this.currentTrickNumber + 1);
-    } else {
-      this.rawCardPoints.EAST_WEST += totalPoints;
-      this.tricksWon.EAST_WEST += (8 - this.currentTrickNumber + 1);
-    }
-
-    this.trickWinner = player;
-    this.currentTrickCards = [];
-
-    this.finalizeRound();
   }
 
   private resolveCurrentTrick() {
@@ -380,6 +296,7 @@ class BelotGameEngine {
 
     this.trickWinner = winner;
 
+    // Tochno 950ms ogled na masata predi pribiraneto kato v originala
     setTimeout(() => {
       this.isResolvingTrick = false;
       this.currentTrickCards = [];
@@ -391,139 +308,21 @@ class BelotGameEngine {
         this.currentTrickNumber++;
         broadcastState();
       }
-    }, 3200);
+    }, 950);
   }
 
   private finalizeRound() {
     this.phase = 'ROUND_OVER';
-    const declarer = this.auction.declarer!;
-    const declarerIsNS = (declarer === 'SOUTH' || declarer === 'NORTH');
-
-    const handPointsNS = this.rawCardPoints.NORTH_SOUTH;
-    const handPointsEW = this.rawCardPoints.EAST_WEST;
-
-    let belotNS = 0;
-    let belotEW = 0;
-    const declsNS: { label: string; points: number; isCrossed?: boolean }[] = [];
-    const declsEW: { label: string; points: number; isCrossed?: boolean }[] = [];
-
-    for (const d of this.acceptedDeclarations) {
-      if (d.type === 'BELOT') {
-        if (d.player === 'SOUTH' || d.player === 'NORTH') belotNS += d.points;
-        else belotEW += d.points;
-      } else {
-        if (d.player === 'SOUTH' || d.player === 'NORTH') {
-          declsNS.push({ label: d.label || d.type, points: d.points });
-        } else {
-          declsEW.push({ label: d.label || d.type, points: d.points });
-        }
-      }
-    }
-
-    const declPointsNS = declsNS.reduce((sum, d) => sum + d.points, 0);
-    const declPointsEW = declsEW.reduce((sum, d) => sum + d.points, 0);
-
-    const totalRawNS = handPointsNS + belotNS + declPointsNS;
-    const totalRawEW = handPointsEW + belotEW + declPointsEW;
-
-    const declarerTotal = declarerIsNS ? totalRawNS : totalRawEW;
-    const defenderTotal = declarerIsNS ? totalRawEW : totalRawNS;
-
-    let scoreRoundNS = 0;
-    let scoreRoundEW = 0;
-    let outcomeText = 'Изкарана';
-
-    const isCapotNS = this.tricksWon.NORTH_SOUTH === 8;
-    const isCapotEW = this.tricksWon.EAST_WEST === 8;
-
-    if (declarerTotal > defenderTotal) {
-      let nsScore = Math.round(totalRawNS / 10);
-      let ewScore = Math.round(totalRawEW / 10);
-
-      if (isCapotNS) { nsScore += 9; outcomeText = 'Капо (Валат)'; }
-      if (isCapotEW) { ewScore += 9; outcomeText = 'Капо (Валат)'; }
-
-      if (declarerIsNS) nsScore += this.hangingPoints;
-      else ewScore += this.hangingPoints;
-      this.hangingPoints = 0;
-
-      scoreRoundNS = nsScore;
-      scoreRoundEW = ewScore;
-      outcomeText = 'Изкарана';
-    } else if (declarerTotal < defenderTotal) {
-      const fullGamePoints = Math.round((totalRawNS + totalRawEW) / 10) + this.hangingPoints;
-      this.hangingPoints = 0;
-
-      if (declarerIsNS) {
-        scoreRoundNS = 0;
-        scoreRoundEW = fullGamePoints + (isCapotEW ? 9 : 0);
-      } else {
-        scoreRoundEW = 0;
-        scoreRoundNS = fullGamePoints + (isCapotNS ? 9 : 0);
-      }
-      outcomeText = 'Вътре';
-    } else {
-      const defScore = Math.round(defenderTotal / 10);
-      const decScore = Math.round(declarerTotal / 10);
-
-      this.hangingPoints += decScore;
-
-      if (declarerIsNS) {
-        scoreRoundNS = 0;
-        scoreRoundEW = defScore;
-      } else {
-        scoreRoundNS = defScore;
-        scoreRoundEW = 0;
-      }
-      outcomeText = 'Висящи точки';
-    }
-
-    if (this.auction.multiplier === 'CONTRA') {
-      scoreRoundNS *= 2;
-      scoreRoundEW *= 2;
-    } else if (this.auction.multiplier === 'RECONTRA') {
-      scoreRoundNS *= 4;
-      scoreRoundEW *= 4;
-    }
-
-    this.scores.NORTH_SOUTH += scoreRoundNS;
-    this.scores.EAST_WEST += scoreRoundEW;
-
-    const CONTRACT_TITLES: Record<string, string> = {
-      CLUBS: 'СПАТИЯ ♣',
-      DIAMONDS: 'КАРО ♦',
-      HEARTS: 'КУПА ♥',
-      SPADES: 'ПИКА ♠',
-      NO_TRUMP: 'БЕЗ КОЗ',
-      ALL_TRUMP: 'ВСИЧКО КОЗ',
-    };
-
-    const cName = this.auction.currentContract ? CONTRACT_TITLES[this.auction.currentContract] : '';
-    const sideName = declarerIsNS ? 'НИЕ' : 'ВИЕ';
-
-    this.roundSummary = {
-      contractTitle: `${cName} (${sideName})`,
-      belotPointsNS: belotNS,
-      belotPointsEW: belotEW,
-      declarationsNS: declsNS,
-      declarationsEW: declsEW,
-      handPointsNS,
-      handPointsEW,
-      totalPointsNS: totalRawNS,
-      totalPointsEW: totalRawEW,
-      outcomeText,
-      scoreAddedNS: scoreRoundNS,
-      scoreAddedEW: scoreRoundEW,
-    };
+    this.scores.NORTH_SOUTH += Math.round(this.rawCardPoints.NORTH_SOUTH / 10);
+    this.scores.EAST_WEST += Math.round(this.rawCardPoints.EAST_WEST / 10);
 
     broadcastState();
 
-    // Pokazva tablotot za 6 sekundi predi sledvashtoto razdavane
     setTimeout(() => {
       this.dealer = NEXT_PLAYER[this.dealer];
       this.startNewRound();
       broadcastState();
-    }, 6000);
+    }, 4500);
   }
 
   public getPayloadFor(targetPlayer: PlayerPosition = 'SOUTH') {
@@ -546,10 +345,7 @@ class BelotGameEngine {
       isResolvingTrick: this.isResolvingTrick,
       trickWinner: this.trickWinner,
       scores: this.scores,
-      hangingPoints: this.hangingPoints,
-      acceptedDeclarations: this.acceptedDeclarations,
-      roundSummary: this.roundSummary,
-      canClaimTricks: this.hands.SOUTH.length > 0 && this.hands.SOUTH.every(c => c.rank === 'J' || c.rank === 'A'),
+      lastAction: this.lastAction,
     };
   }
 }
@@ -578,7 +374,7 @@ function handleBotNextAction() {
     setTimeout(() => {
       game.cutDeck(16);
       broadcastState();
-    }, 1100);
+    }, 800);
     return;
   }
 
@@ -586,7 +382,7 @@ function handleBotNextAction() {
     setTimeout(() => {
       game.makeBid(game.currentPlayer, 'PASS');
       broadcastState();
-    }, 1100);
+    }, 750); // Realistichno tempo za vzehane na reshenie ot bota
     return;
   }
 
@@ -602,7 +398,7 @@ function handleBotNextAction() {
 
       game.playCard(botPos, chosenCard);
       broadcastState();
-    }, 1300);
+    }, 850);
   }
 }
 
@@ -629,22 +425,12 @@ wss.on('connection', ws => {
           break;
 
         case 'PLAY_CARD':
-          game.playCard(
-            'SOUTH',
-            data.payload.card,
-            data.payload.declareBelot,
-            data.payload.declarations
-          );
-          broadcastState();
-          break;
-
-        case 'CLAIM_REMAINING_TRICKS':
-          game.claimRemainingTricks('SOUTH');
+          game.playCard('SOUTH', data.payload.card);
           broadcastState();
           break;
       }
     } catch (e) {
-      console.error('Error handling message:', e);
+      console.error(e);
     }
   });
 });

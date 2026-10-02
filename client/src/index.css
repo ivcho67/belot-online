@@ -5,71 +5,60 @@ html, body, #root {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: #020617;
+  background-color: #27628a;
   color: #f8fafc;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   user-select: none;
 }
 
-/* Анимации при хвърляне на карта към центъра */
+/* Stilistichni formi i polet na kartite kato v Belot.bg */
 @keyframes throwSouth {
-  0% { transform: translate(0, 180px) scale(0.7) rotate(6deg); opacity: 0; }
-  100% { transform: translate(0, 0) scale(1) rotate(0deg); opacity: 1; }
+  0% { transform: translate(0, 160px) scale(0.8) rotate(4deg); opacity: 0.6; }
+  100% { transform: translate(0, 18px) scale(1) rotate(2deg); opacity: 1; }
 }
 
 @keyframes throwNorth {
-  0% { transform: translate(0, -180px) scale(0.7) rotate(-6deg); opacity: 0; }
-  100% { transform: translate(0, 0) scale(1) rotate(0deg); opacity: 1; }
+  0% { transform: translate(0, -160px) scale(0.8) rotate(-4deg); opacity: 0.6; }
+  100% { transform: translate(0, -18px) scale(1) rotate(-3deg); opacity: 1; }
 }
 
 @keyframes throwWest {
-  0% { transform: translate(-220px, 0) scale(0.7) rotate(-10deg); opacity: 0; }
-  100% { transform: translate(0, 0) scale(1) rotate(0deg); opacity: 1; }
+  0% { transform: translate(-200px, 0) scale(0.8) rotate(-8deg); opacity: 0.6; }
+  100% { transform: translate(-22px, 0) scale(1) rotate(-6deg); opacity: 1; }
 }
 
 @keyframes throwEast {
-  0% { transform: translate(220px, 0) scale(0.7) rotate(10deg); opacity: 0; }
-  100% { transform: translate(0, 0) scale(1) rotate(0deg); opacity: 1; }
+  0% { transform: translate(200px, 0) scale(0.8) rotate(8deg); opacity: 0.6; }
+  100% { transform: translate(22px, 0) scale(1) rotate(5deg); opacity: 1; }
 }
 
-.anim-throw-south { animation: throwSouth 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
-.anim-throw-north { animation: throwNorth 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
-.anim-throw-west { animation: throwWest 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
-.anim-throw-east { animation: throwEast 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.anim-throw-south { animation: throwSouth 0.32s cubic-bezier(0.18, 0.89, 0.32, 1.15) forwards; }
+.anim-throw-north { animation: throwNorth 0.32s cubic-bezier(0.18, 0.89, 0.32, 1.15) forwards; }
+.anim-throw-west { animation: throwWest 0.32s cubic-bezier(0.18, 0.89, 0.32, 1.15) forwards; }
+.anim-throw-east { animation: throwEast 0.32s cubic-bezier(0.18, 0.89, 0.32, 1.15) forwards; }
 
-/* Плавни анимации при прибиране на взятката към победителя */
+/* Pribirane na celia kup karti kam pobeditelq */
 @keyframes collectToSouth {
   0% { transform: translate(0, 0) scale(1); opacity: 1; }
-  40% { transform: translate(0, -15px) scale(1.05); }
-  100% { transform: translate(0, 320px) scale(0.25) rotate(8deg); opacity: 0; }
+  100% { transform: translate(0, 260px) scale(0.2) rotate(6deg); opacity: 0; }
 }
 
 @keyframes collectToNorth {
   0% { transform: translate(0, 0) scale(1); opacity: 1; }
-  40% { transform: translate(0, 15px) scale(1.05); }
-  100% { transform: translate(0, -320px) scale(0.25) rotate(-8deg); opacity: 0; }
+  100% { transform: translate(0, -260px) scale(0.2) rotate(-6deg); opacity: 0; }
 }
 
 @keyframes collectToWest {
   0% { transform: translate(0, 0) scale(1); opacity: 1; }
-  40% { transform: translate(15px, 0) scale(1.05); }
-  100% { transform: translate(-380px, 0) scale(0.25) rotate(-14deg); opacity: 0; }
+  100% { transform: translate(-340px, 0) scale(0.2) rotate(-10deg); opacity: 0; }
 }
 
 @keyframes collectToEast {
   0% { transform: translate(0, 0) scale(1); opacity: 1; }
-  40% { transform: translate(-15px, 0) scale(1.05); }
-  100% { transform: translate(380px, 0) scale(0.25) rotate(14deg); opacity: 0; }
+  100% { transform: translate(340px, 0) scale(0.2) rotate(10deg); opacity: 0; }
 }
 
-.anim-collect-south { animation: collectToSouth 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-.anim-collect-north { animation: collectToNorth 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-.anim-collect-west { animation: collectToWest 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-.anim-collect-east { animation: collectToEast 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-
-/* Анимация за раздаване на карти от центъра към играчите */
-@keyframes dealToSouth {
-  0% { transform: translate(0, -150px) scale(0.3); opacity: 0; }
-  100% { transform: translate(0, 0) scale(1); opacity: 1; }
-}
-.anim-deal-south { animation: dealToSouth 0.55s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+.anim-collect-south { animation: collectToSouth 0.45s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-north { animation: collectToNorth 0.45s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-west { animation: collectToWest 0.45s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-east { animation: collectToEast 0.45s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
