@@ -38,6 +38,7 @@ const NEXT_PLAYER: Record<PlayerPosition, PlayerPosition> = {
   WEST: 'SOUTH',
 };
 
+// Tochki pri presmqtane na ruchka
 const TRUMP_VALUES: Record<Rank, number> = {
   '7': 0, '8': 0, 'Q': 3, 'K': 4, '10': 10, 'A': 11, '9': 14, 'J': 20
 };
@@ -46,6 +47,7 @@ const NON_TRUMP_VALUES: Record<Rank, number> = {
   '7': 0, '8': 0, '9': 0, 'J': 2, 'Q': 3, 'K': 4, '10': 10, 'A': 11
 };
 
+// Sila na kartata pri opredelqne na pobeditel
 const TRUMP_POWER: Record<Rank, number> = {
   '7': 0, '8': 1, 'Q': 2, 'K': 3, '10': 4, 'A': 5, '9': 6, 'J': 7
 };
@@ -152,13 +154,8 @@ class BelotGameEngine {
       this.lastAction = { player, text: 'ПАС' };
 
       if (!this.auction.currentContract && this.auction.consecutivePasses >= 4) {
-        this.auction.currentContract = 'ALL_TRUMP';
-        this.auction.declarer = player;
-        this.lastAction = { player, text: 'ВСИЧКО КОЗ' };
-        this.dealRemainingThree();
-        this.phase = 'PLAYING';
-        this.currentTrickNumber = 1;
-        this.currentPlayer = NEXT_PLAYER[this.dealer];
+        this.dealer = NEXT_PLAYER[this.dealer];
+        this.startNewRound();
         return;
       }
 
@@ -180,43 +177,85 @@ class BelotGameEngine {
     this.currentPlayer = NEXT_PLAYER[this.currentPlayer];
   }
 
-  public getCurrentTrickWinner(): { winner: PlayerPosition; isTrump: boolean; highestPower: number } {
+  /**
+   * KANONICHNO OPREDELQNE KOI VZIMA VZYATKATA
+   */
+  public getCurrentTrickWinner(): { winner: PlayerPosition; highestPower: number } {
     const contract = this.auction.currentContract!;
-    const leadSuit = this.currentTrickCards[0].card.suit;
+    const leadCard = this.currentTrickCards[0].card;
+    const leadSuit = leadCard.suit;
 
     let winner = this.currentTrickCards[0].player;
-    const isFirstCardTrump = contract === 'ALL_TRUMP' || (contract !== 'NO_TRUMP' && leadSuit === contract);
-    let highestPower = isFirstCardTrump
-      ? TRUMP_POWER[this.currentTrickCards[0].card.rank]
-      : NON_TRUMP_POWER[this.currentTrickCards[0].card.rank];
-    let highestIsTrump = isFirstCardTrump;
+
+    // 1. VSICHKO KOZ: Vzima nai-visokata karta ZADULZHITELNO OT POVEDENATA BOYA
+    if (contract === 'ALL_TRUMP') {
+      let highest = TRUMP_POWER[leadCard.rank];
+      for (let i = 1; i < this.currentTrickCards.length; i++) {
+        const tc = this.currentTrickCards[i];
+        if (tc.card.suit === leadSuit) {
+          const power = TRUMP_POWER[tc.card.rank];
+          if (power > highest) {
+            highest = power;
+            winner = tc.player;
+          }
+        }
+      }
+      return { winner, highestPower: highest };
+    }
+
+    // 2. BEZ KOZ: Vzima nai-visokata karta ZADULZHITELNO OT POVEDENATA BOYA
+    if (contract === 'NO_TRUMP') {
+      let highest = NON_TRUMP_POWER[leadCard.rank];
+      for (let i = 1; i < this.currentTrickCards.length; i++) {
+        const tc = this.currentTrickCards[i];
+        if (tc.card.suit === leadSuit) {
+          const power = NON_TRUMP_POWER[tc.card.rank];
+          if (power > highest) {
+            highest = power;
+            winner = tc.player;
+          }
+        }
+      }
+      return { winner, highestPower: highest };
+    }
+
+    // 3. IGRA NA BOYA (KOZ)
+    const trumpSuit = contract as Suit;
+    let highestTrumpPower = -1;
+    let hasTrump = false;
+    let highestLeadPower = NON_TRUMP_POWER[leadCard.rank];
+
+    if (leadSuit === trumpSuit) {
+      highestTrumpPower = TRUMP_POWER[leadCard.rank];
+      hasTrump = true;
+    }
 
     for (let i = 1; i < this.currentTrickCards.length; i++) {
       const tc = this.currentTrickCards[i];
-      const card = tc.card;
-      const cardIsTrump = contract === 'ALL_TRUMP' || (contract !== 'NO_TRUMP' && card.suit === contract);
-      const cardPower = cardIsTrump ? TRUMP_POWER[card.rank] : NON_TRUMP_POWER[card.rank];
+      const isTrump = (tc.card.suit === trumpSuit);
 
-      if (cardIsTrump) {
-        if (!highestIsTrump) {
-          highestIsTrump = true;
-          highestPower = cardPower;
-          winner = tc.player;
-        } else if (cardPower > highestPower) {
-          highestPower = cardPower;
+      if (isTrump) {
+        const power = TRUMP_POWER[tc.card.rank];
+        if (!hasTrump || power > highestTrumpPower) {
+          hasTrump = true;
+          highestTrumpPower = power;
           winner = tc.player;
         }
-      } else if (!highestIsTrump && card.suit === leadSuit) {
-        if (cardPower > highestPower) {
-          highestPower = cardPower;
+      } else if (!hasTrump && tc.card.suit === leadSuit) {
+        const power = NON_TRUMP_POWER[tc.card.rank];
+        if (power > highestLeadPower) {
+          highestLeadPower = power;
           winner = tc.player;
         }
       }
     }
 
-    return { winner, isTrump: highestIsTrump, highestPower };
+    return { winner, highestPower: hasTrump ? highestTrumpPower : highestLeadPower };
   }
 
+  /**
+   * KANONICHNI PRAVILA ZA OTGOVARYANE I CAKANE
+   */
   public isCardValidForPlay(player: PlayerPosition, card: Card): boolean {
     const hand = this.hands[player];
     const contract = this.auction.currentContract!;
@@ -225,7 +264,7 @@ class BelotGameEngine {
 
     const leadSuit = this.currentTrickCards[0].card.suit;
     const hasLeadSuit = hand.some(c => c.suit === leadSuit);
-    const { winner, isTrump: highestIsTrump, highestPower } = this.getCurrentTrickWinner();
+    const { winner, highestPower } = this.getCurrentTrickWinner();
 
     const isPartnerWinning =
       (player === 'SOUTH' && winner === 'NORTH') ||
@@ -233,10 +272,13 @@ class BelotGameEngine {
       (player === 'EAST' && winner === 'WEST') ||
       (player === 'WEST' && winner === 'EAST');
 
+    // BEZ KOZ: Samo otgovaryane na boya
     if (contract === 'NO_TRUMP') {
-      return hasLeadSuit ? card.suit === leadSuit : true;
+      if (hasLeadSuit) return card.suit === leadSuit;
+      return true;
     }
 
+    // VSICHKO KOZ: Zadulzhitelno otgovaryane i zadulzhitelno kachvane
     if (contract === 'ALL_TRUMP') {
       if (hasLeadSuit) {
         if (card.suit !== leadSuit) return false;
@@ -247,8 +289,12 @@ class BelotGameEngine {
       return true;
     }
 
+    // IGRA NA BOYA
     const trumpSuit = contract as Suit;
-    if (leadSuit === trumpSuit) {
+    const isLeadTrump = (leadSuit === trumpSuit);
+
+    // Vodena boya e koz
+    if (isLeadTrump) {
       if (hasLeadSuit) {
         if (card.suit !== trumpSuit) return false;
         const higherTrumps = hand.filter(c => c.suit === trumpSuit && TRUMP_POWER[c.rank] > highestPower);
@@ -258,13 +304,21 @@ class BelotGameEngine {
       return true;
     }
 
-    if (hasLeadSuit) return card.suit === leadSuit;
+    // Vodena obyknovena boya
+    if (hasLeadSuit) {
+      return card.suit === leadSuit;
+    }
+
+    // Nyamash ot vodenata boya:
+    // Ako partnyorat vodi, ne si dlyzhen da cakash!
     if (isPartnerWinning) return true;
 
+    // Protivnik vodi: Zadulzhitelno cakane i nadcakvane
     const trumps = hand.filter(c => c.suit === trumpSuit);
     if (trumps.length > 0) {
       if (card.suit !== trumpSuit) return false;
-      if (highestIsTrump) {
+      const alreadyTrumped = this.currentTrickCards.some(tc => tc.card.suit === trumpSuit);
+      if (alreadyTrumped) {
         const higher = trumps.filter(c => TRUMP_POWER[c.rank] > highestPower);
         if (higher.length > 0) return TRUMP_POWER[card.rank] > highestPower;
         return true;
@@ -297,12 +351,18 @@ class BelotGameEngine {
     let trickSum = 0;
     for (const tc of this.currentTrickCards) {
       const c = tc.card;
-      const isTrump = contract === 'ALL_TRUMP' || (contract !== 'NO_TRUMP' && c.suit === contract);
-      trickSum += isTrump ? TRUMP_VALUES[c.rank] : NON_TRUMP_VALUES[c.rank];
+      if (contract === 'ALL_TRUMP') {
+        trickSum += TRUMP_VALUES[c.rank];
+      } else if (contract === 'NO_TRUMP') {
+        trickSum += NON_TRUMP_VALUES[c.rank] * 2;
+      } else {
+        const isTrump = (c.suit === contract);
+        trickSum += isTrump ? TRUMP_VALUES[c.rank] : NON_TRUMP_VALUES[c.rank];
+      }
     }
 
     if (this.currentTrickNumber === 8) {
-      trickSum += 10;
+      trickSum += (contract === 'NO_TRUMP' ? 20 : 10); // Desetka otgore
     }
 
     if (winner === 'SOUTH' || winner === 'NORTH') {
@@ -315,7 +375,7 @@ class BelotGameEngine {
 
     this.trickWinner = winner;
 
-    // 2.2s задържане на 4-те карти преди да започне следващият ход или таблото
+    // 2.2 sekundi zadurzhane na 4-te karti v centura predi chistene
     setTimeout(() => {
       this.isResolvingTrick = false;
       this.currentTrickCards = [];
@@ -345,20 +405,35 @@ class BelotGameEngine {
     let scoreEW = 0;
     let outcomeText = 'Изкарана';
 
-    if (declarerTotal > defenderTotal) {
+    // Proverka za Kapo (Valat): vsqka edna ot 8-te vzyatki e vzeta
+    const isCapotNS = (this.tricksWon.NORTH_SOUTH === 8);
+    const isCapotEW = (this.tricksWon.EAST_WEST === 8);
+
+    if (isCapotNS) {
+      scoreNS = Math.round(totalRawNS / 10) + 9;
+      scoreEW = 0;
+      outcomeText = 'Капо (Валат)!';
+    } else if (isCapotEW) {
+      scoreEW = Math.round(totalRawEW / 10) + 9;
+      scoreNS = 0;
+      outcomeText = 'Капо (Валат)!';
+    } else if (declarerTotal > defenderTotal) {
+      // Izkarana
       scoreNS = Math.round(totalRawNS / 10);
       scoreEW = Math.round(totalRawEW / 10);
       outcomeText = 'Изкарана';
     } else {
+      // Vutre: vsichki tochki otivat pri protivnika
       const allPoints = Math.round((totalRawNS + totalRawEW) / 10);
       if (declarerIsNS) {
         scoreNS = 0;
         scoreEW = allPoints;
+        outcomeText = 'Вътре (Ние)';
       } else {
         scoreEW = 0;
         scoreNS = allPoints;
+        outcomeText = 'Вътре (Вие)';
       }
-      outcomeText = 'Вътре';
     }
 
     this.scores.NORTH_SOUTH += scoreNS;
@@ -390,12 +465,12 @@ class BelotGameEngine {
 
     broadcastState();
 
-    // Таблото стои 8.5 секунди на екрана преди новото цепене и раздаване
+    // Tabloto stoi garanto 8 sekundi predi sledvashtiq krug!
     setTimeout(() => {
       this.dealer = NEXT_PLAYER[this.dealer];
       this.startNewRound();
       broadcastState();
-    }, 8500);
+    }, 8000);
   }
 
   public getPayloadFor(targetPlayer: PlayerPosition = 'SOUTH') {
