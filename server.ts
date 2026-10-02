@@ -1,15 +1,3 @@
-/**
- * File: server.ts
- * Version: v2.7.5 - Production Ready WebSocket Engine
- * Last Updated: 2026-10-02
- * Features:
- * - Динамичен порт за Render и локален хост (process.env.PORT || 8080).
- * - Пълно спазване на цикъла: Цепене на празна маса -> Раздаване 5 карти -> Наддаване -> Дораздаване 3 карти -> Игра.
- * - Интелигентни ботове с канонично отговаряне на цвета, цакане и качване.
- * - Разрешаване на взятките с 2.6 сек. делей и събиране на картите.
- * - Поддръжка на Claim (сваляне на сигурни карти).
- */
-
 import { WebSocketServer, WebSocket } from 'ws';
 
 export type Suit = 'CLUBS' | 'DIAMONDS' | 'HEARTS' | 'SPADES';
@@ -31,6 +19,21 @@ export interface DeclarationItem {
   points: number;
   label?: string;
   cards: Card[];
+}
+
+export interface RoundSummary {
+  contractTitle: string;
+  belotPointsNS: number;
+  belotPointsEW: number;
+  declarationsNS: { label: string; points: number; isCrossed?: boolean }[];
+  declarationsEW: { label: string; points: number; isCrossed?: boolean }[];
+  handPointsNS: number;
+  handPointsEW: number;
+  totalPointsNS: number;
+  totalPointsEW: number;
+  outcomeText: string;
+  scoreAddedNS: number;
+  scoreAddedEW: number;
 }
 
 const SUITS: Suit[] = ['CLUBS', 'DIAMONDS', 'HEARTS', 'SPADES'];
@@ -78,14 +81,13 @@ class BelotGameEngine {
   public currentTrickCards: { player: PlayerPosition; card: Card }[] = [];
   public currentTrickNumber: number = 1;
   public tricksWon = { NORTH_SOUTH: 0, EAST_WEST: 0 };
-  public rawPoints = { NORTH_SOUTH: 0, EAST_WEST: 0 };
+  public rawCardPoints = { NORTH_SOUTH: 0, EAST_WEST: 0 };
   public scores = { NORTH_SOUTH: 0, EAST_WEST: 0 };
   public hangingPoints: number = 0;
-  public acceptedDeclarations: any[] = [];
+  public acceptedDeclarations: { player: PlayerPosition; type: string; points: number; label?: string }[] = [];
   public isResolvingTrick: boolean = false;
   public trickWinner?: PlayerPosition;
-  public trickPoints: number = 0;
-  public reasonForContinuation?: string;
+  public roundSummary: RoundSummary | null = null;
 
   constructor() {
     this.startNewRound();
@@ -104,11 +106,11 @@ class BelotGameEngine {
     this.currentTrickCards = [];
     this.currentTrickNumber = 1;
     this.tricksWon = { NORTH_SOUTH: 0, EAST_WEST: 0 };
-    this.rawPoints = { NORTH_SOUTH: 0, EAST_WEST: 0 };
+    this.rawCardPoints = { NORTH_SOUTH: 0, EAST_WEST: 0 };
     this.isResolvingTrick = false;
     this.trickWinner = undefined;
-    this.trickPoints = 0;
     this.acceptedDeclarations = [];
+    this.roundSummary = null;
 
     this.phase = 'CUTTING';
     this.cutter = NEXT_PLAYER[this.dealer];
@@ -147,7 +149,6 @@ class BelotGameEngine {
     this.deck.push(...top);
 
     this.dealInitialFive();
-
     this.phase = 'BIDDING';
     this.currentPlayer = NEXT_PLAYER[this.dealer];
   }
@@ -196,30 +197,30 @@ class BelotGameEngine {
     const leadSuit = this.currentTrickCards[0].card.suit;
 
     let winner = this.currentTrickCards[0].player;
-    const firstIsTrump = contract === 'ALL_TRUMP' || (contract !== 'NO_TRUMP' && leadSuit === contract);
-    let highestPower = firstIsTrump
+    const isFirstCardTrump = contract === 'ALL_TRUMP' || (contract !== 'NO_TRUMP' && leadSuit === contract);
+    let highestPower = isFirstCardTrump
       ? TRUMP_POWER[this.currentTrickCards[0].card.rank]
       : NON_TRUMP_POWER[this.currentTrickCards[0].card.rank];
-    let highestIsTrump = firstIsTrump;
+    let highestIsTrump = isFirstCardTrump;
 
     for (let i = 1; i < this.currentTrickCards.length; i++) {
       const tc = this.currentTrickCards[i];
-      const c = tc.card;
-      const isTrump = contract === 'ALL_TRUMP' || (contract !== 'NO_TRUMP' && c.suit === contract);
-      const power = isTrump ? TRUMP_POWER[c.rank] : NON_TRUMP_POWER[c.rank];
+      const card = tc.card;
+      const cardIsTrump = contract === 'ALL_TRUMP' || (contract !== 'NO_TRUMP' && card.suit === contract);
+      const cardPower = cardIsTrump ? TRUMP_POWER[card.rank] : NON_TRUMP_POWER[card.rank];
 
-      if (isTrump) {
+      if (cardIsTrump) {
         if (!highestIsTrump) {
           highestIsTrump = true;
-          highestPower = power;
+          highestPower = cardPower;
           winner = tc.player;
-        } else if (power > highestPower) {
-          highestPower = power;
+        } else if (cardPower > highestPower) {
+          highestPower = cardPower;
           winner = tc.player;
         }
-      } else if (!highestIsTrump && c.suit === leadSuit) {
-        if (power > highestPower) {
-          highestPower = power;
+      } else if (!highestIsTrump && card.suit === leadSuit) {
+        if (cardPower > highestPower) {
+          highestPower = cardPower;
           winner = tc.player;
         }
       }
@@ -235,25 +236,25 @@ class BelotGameEngine {
     if (this.currentTrickCards.length === 0) return true;
 
     const leadSuit = this.currentTrickCards[0].card.suit;
-    const hasLead = hand.some(c => c.suit === leadSuit);
+    const hasLeadSuit = hand.some(c => c.suit === leadSuit);
     const { winner, isTrump: highestIsTrump, highestPower } = this.getCurrentTrickWinner();
 
-    const isPartner =
+    const isPartnerWinning =
       (player === 'SOUTH' && winner === 'NORTH') ||
       (player === 'NORTH' && winner === 'SOUTH') ||
       (player === 'EAST' && winner === 'WEST') ||
       (player === 'WEST' && winner === 'EAST');
 
     if (contract === 'NO_TRUMP') {
-      if (hasLead) return card.suit === leadSuit;
+      if (hasLeadSuit) return card.suit === leadSuit;
       return true;
     }
 
     if (contract === 'ALL_TRUMP') {
-      if (hasLead) {
+      if (hasLeadSuit) {
         if (card.suit !== leadSuit) return false;
-        const higherCards = hand.filter(c => c.suit === leadSuit && TRUMP_POWER[c.rank] > highestPower);
-        if (higherCards.length > 0) return TRUMP_POWER[card.rank] > highestPower;
+        const higherInLead = hand.filter(c => c.suit === leadSuit && TRUMP_POWER[c.rank] > highestPower);
+        if (higherInLead.length > 0) return TRUMP_POWER[card.rank] > highestPower;
         return true;
       }
       return true;
@@ -263,7 +264,7 @@ class BelotGameEngine {
     const isLeadTrump = leadSuit === trumpSuit;
 
     if (isLeadTrump) {
-      if (hasLead) {
+      if (hasLeadSuit) {
         if (card.suit !== trumpSuit) return false;
         const higherTrumps = hand.filter(c => c.suit === trumpSuit && TRUMP_POWER[c.rank] > highestPower);
         if (higherTrumps.length > 0) return TRUMP_POWER[card.rank] > highestPower;
@@ -272,8 +273,8 @@ class BelotGameEngine {
       return true;
     }
 
-    if (hasLead) return card.suit === leadSuit;
-    if (isPartner) return true;
+    if (hasLeadSuit) return card.suit === leadSuit;
+    if (isPartnerWinning) return true;
 
     const trumpsInHand = hand.filter(c => c.suit === trumpSuit);
     if (trumpsInHand.length > 0) {
@@ -340,15 +341,14 @@ class BelotGameEngine {
 
     totalPoints += 10;
     if (isNS) {
-      this.rawPoints.NORTH_SOUTH += totalPoints;
+      this.rawCardPoints.NORTH_SOUTH += totalPoints;
       this.tricksWon.NORTH_SOUTH += (8 - this.currentTrickNumber + 1);
     } else {
-      this.rawPoints.EAST_WEST += totalPoints;
+      this.rawCardPoints.EAST_WEST += totalPoints;
       this.tricksWon.EAST_WEST += (8 - this.currentTrickNumber + 1);
     }
 
     this.trickWinner = player;
-    this.trickPoints = totalPoints;
     this.currentTrickCards = [];
 
     this.finalizeRound();
@@ -371,15 +371,14 @@ class BelotGameEngine {
     }
 
     if (winner === 'SOUTH' || winner === 'NORTH') {
-      this.rawPoints.NORTH_SOUTH += trickSum;
+      this.rawCardPoints.NORTH_SOUTH += trickSum;
       this.tricksWon.NORTH_SOUTH++;
     } else {
-      this.rawPoints.EAST_WEST += trickSum;
+      this.rawCardPoints.EAST_WEST += trickSum;
       this.tricksWon.EAST_WEST++;
     }
 
     this.trickWinner = winner;
-    this.trickPoints = trickSum;
 
     setTimeout(() => {
       this.isResolvingTrick = false;
@@ -392,29 +391,139 @@ class BelotGameEngine {
         this.currentTrickNumber++;
         broadcastState();
       }
-    }, 2600);
+    }, 3200);
   }
 
   private finalizeRound() {
     this.phase = 'ROUND_OVER';
-    let ptsNS = this.rawPoints.NORTH_SOUTH;
-    let ptsEW = this.rawPoints.EAST_WEST;
+    const declarer = this.auction.declarer!;
+    const declarerIsNS = (declarer === 'SOUTH' || declarer === 'NORTH');
+
+    const handPointsNS = this.rawCardPoints.NORTH_SOUTH;
+    const handPointsEW = this.rawCardPoints.EAST_WEST;
+
+    let belotNS = 0;
+    let belotEW = 0;
+    const declsNS: { label: string; points: number; isCrossed?: boolean }[] = [];
+    const declsEW: { label: string; points: number; isCrossed?: boolean }[] = [];
 
     for (const d of this.acceptedDeclarations) {
-      if (d.player === 'SOUTH' || d.player === 'NORTH') ptsNS += d.points;
-      else ptsEW += d.points;
+      if (d.type === 'BELOT') {
+        if (d.player === 'SOUTH' || d.player === 'NORTH') belotNS += d.points;
+        else belotEW += d.points;
+      } else {
+        if (d.player === 'SOUTH' || d.player === 'NORTH') {
+          declsNS.push({ label: d.label || d.type, points: d.points });
+        } else {
+          declsEW.push({ label: d.label || d.type, points: d.points });
+        }
+      }
     }
 
-    this.scores.NORTH_SOUTH += Math.round(ptsNS / 10);
-    this.scores.EAST_WEST += Math.round(ptsEW / 10);
+    const declPointsNS = declsNS.reduce((sum, d) => sum + d.points, 0);
+    const declPointsEW = declsEW.reduce((sum, d) => sum + d.points, 0);
+
+    const totalRawNS = handPointsNS + belotNS + declPointsNS;
+    const totalRawEW = handPointsEW + belotEW + declPointsEW;
+
+    const declarerTotal = declarerIsNS ? totalRawNS : totalRawEW;
+    const defenderTotal = declarerIsNS ? totalRawEW : totalRawNS;
+
+    let scoreRoundNS = 0;
+    let scoreRoundEW = 0;
+    let outcomeText = 'Изкарана';
+
+    const isCapotNS = this.tricksWon.NORTH_SOUTH === 8;
+    const isCapotEW = this.tricksWon.EAST_WEST === 8;
+
+    if (declarerTotal > defenderTotal) {
+      let nsScore = Math.round(totalRawNS / 10);
+      let ewScore = Math.round(totalRawEW / 10);
+
+      if (isCapotNS) { nsScore += 9; outcomeText = 'Капо (Валат)'; }
+      if (isCapotEW) { ewScore += 9; outcomeText = 'Капо (Валат)'; }
+
+      if (declarerIsNS) nsScore += this.hangingPoints;
+      else ewScore += this.hangingPoints;
+      this.hangingPoints = 0;
+
+      scoreRoundNS = nsScore;
+      scoreRoundEW = ewScore;
+      outcomeText = 'Изкарана';
+    } else if (declarerTotal < defenderTotal) {
+      const fullGamePoints = Math.round((totalRawNS + totalRawEW) / 10) + this.hangingPoints;
+      this.hangingPoints = 0;
+
+      if (declarerIsNS) {
+        scoreRoundNS = 0;
+        scoreRoundEW = fullGamePoints + (isCapotEW ? 9 : 0);
+      } else {
+        scoreRoundEW = 0;
+        scoreRoundNS = fullGamePoints + (isCapotNS ? 9 : 0);
+      }
+      outcomeText = 'Вътре';
+    } else {
+      const defScore = Math.round(defenderTotal / 10);
+      const decScore = Math.round(declarerTotal / 10);
+
+      this.hangingPoints += decScore;
+
+      if (declarerIsNS) {
+        scoreRoundNS = 0;
+        scoreRoundEW = defScore;
+      } else {
+        scoreRoundNS = defScore;
+        scoreRoundEW = 0;
+      }
+      outcomeText = 'Висящи точки';
+    }
+
+    if (this.auction.multiplier === 'CONTRA') {
+      scoreRoundNS *= 2;
+      scoreRoundEW *= 2;
+    } else if (this.auction.multiplier === 'RECONTRA') {
+      scoreRoundNS *= 4;
+      scoreRoundEW *= 4;
+    }
+
+    this.scores.NORTH_SOUTH += scoreRoundNS;
+    this.scores.EAST_WEST += scoreRoundEW;
+
+    const CONTRACT_TITLES: Record<string, string> = {
+      CLUBS: 'СПАТИЯ ♣',
+      DIAMONDS: 'КАРО ♦',
+      HEARTS: 'КУПА ♥',
+      SPADES: 'ПИКА ♠',
+      NO_TRUMP: 'БЕЗ КОЗ',
+      ALL_TRUMP: 'ВСИЧКО КОЗ',
+    };
+
+    const cName = this.auction.currentContract ? CONTRACT_TITLES[this.auction.currentContract] : '';
+    const sideName = declarerIsNS ? 'НИЕ' : 'ВИЕ';
+
+    this.roundSummary = {
+      contractTitle: `${cName} (${sideName})`,
+      belotPointsNS: belotNS,
+      belotPointsEW: belotEW,
+      declarationsNS: declsNS,
+      declarationsEW: declsEW,
+      handPointsNS,
+      handPointsEW,
+      totalPointsNS: totalRawNS,
+      totalPointsEW: totalRawEW,
+      outcomeText,
+      scoreAddedNS: scoreRoundNS,
+      scoreAddedEW: scoreRoundEW,
+    };
 
     broadcastState();
 
+    // Pokazva tablotot za 6 sekundi predi sledvashtoto razdavane
     setTimeout(() => {
       this.dealer = NEXT_PLAYER[this.dealer];
       this.startNewRound();
       broadcastState();
-    }, 3800);
+    }, 6000);
   }
 
   public getPayloadFor(targetPlayer: PlayerPosition = 'SOUTH') {
@@ -436,17 +545,15 @@ class BelotGameEngine {
       currentTrickNumber: this.currentTrickNumber,
       isResolvingTrick: this.isResolvingTrick,
       trickWinner: this.trickWinner,
-      trickPoints: this.trickPoints,
       scores: this.scores,
       hangingPoints: this.hangingPoints,
       acceptedDeclarations: this.acceptedDeclarations,
-      reasonForContinuation: this.reasonForContinuation,
+      roundSummary: this.roundSummary,
       canClaimTricks: this.hands.SOUTH.length > 0 && this.hands.SOUTH.every(c => c.rank === 'J' || c.rank === 'A'),
     };
   }
 }
 
-// Използва порт от Render или 8080 по подразбиране
 const PORT = Number(process.env.PORT) || 8080;
 const wss = new WebSocketServer({ port: PORT });
 const game = new BelotGameEngine();
@@ -471,7 +578,7 @@ function handleBotNextAction() {
     setTimeout(() => {
       game.cutDeck(16);
       broadcastState();
-    }, 700);
+    }, 1100);
     return;
   }
 
@@ -479,7 +586,7 @@ function handleBotNextAction() {
     setTimeout(() => {
       game.makeBid(game.currentPlayer, 'PASS');
       broadcastState();
-    }, 850);
+    }, 1100);
     return;
   }
 
@@ -495,7 +602,7 @@ function handleBotNextAction() {
 
       game.playCard(botPos, chosenCard);
       broadcastState();
-    }, 1100);
+    }, 1300);
   }
 }
 
@@ -537,9 +644,9 @@ wss.on('connection', ws => {
           break;
       }
     } catch (e) {
-      console.error('Грешка при обработка на клиентско съобщение:', e);
+      console.error('Error handling message:', e);
     }
   });
 });
 
-console.log(`[Belot Server] Работи на порт ${PORT}`);
+console.log(`[Belot Server] Live on port ${PORT}`);

@@ -1,15 +1,3 @@
-/**
- * File: App.tsx
- * Version: v2.8.0 - Deployment & Offline/Online Auto-Detect
- * Last Updated: 2026-10-02
- * Features:
- * - Автоматично свързване към Render през VITE_WS_URL или локален fallback.
- * - Чиста маса при цепене (картите са скрити).
- * - Раздаване на 5 карти след цепене и 3 карти след наддаване.
- * - Визуално затъмняване на невалидните карти според правилата.
- * - Плавни анимации на прибиране на картите към победителя с бадж.
- */
-
 import { useEffect, useState, useRef, useMemo } from 'react';
 
 type Suit = 'CLUBS' | 'DIAMONDS' | 'HEARTS' | 'SPADES';
@@ -79,11 +67,12 @@ export function App() {
   const [gameState, setGameState] = useState<any>(null);
   const [sortDescending, setSortDescending] = useState(true);
   const [hoveredCutIndex, setHoveredCutIndex] = useState<number | null>(null);
+  const [isCuttingDeck, setIsCuttingDeck] = useState(false);
   const [selectedDeclarations, setSelectedDeclarations] = useState<string[]>([]);
+  const [countdownSeconds, setCountdownSeconds] = useState(6);
   const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    // Взима VITE_WS_URL, ако е дефиниран в Vercel, иначе локален fallback
     const WS_URL = (import.meta as any).env.VITE_WS_URL || 
       `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname || 'localhost'}:8080`;
 
@@ -104,13 +93,28 @@ export function App() {
     return () => ws.close();
   }, []);
 
+  // Timer za tablotot pri faza ROUND_OVER
+  useEffect(() => {
+    if (gameState?.phase === 'ROUND_OVER') {
+      setCountdownSeconds(6);
+      const timer = setInterval(() => {
+        setCountdownSeconds(prev => (prev > 1 ? prev - 1 : 1));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [gameState?.phase]);
+
   const handleCutCard = (index: number) => {
-    socketRef.current?.send(
-      JSON.stringify({
-        type: 'CUT_DECK',
-        payload: { cutIndex: index },
-      })
-    );
+    setIsCuttingDeck(true);
+    setTimeout(() => {
+      socketRef.current?.send(
+        JSON.stringify({
+          type: 'CUT_DECK',
+          payload: { cutIndex: index },
+        })
+      );
+      setIsCuttingDeck(false);
+    }, 600);
   };
 
   const sendBid = (bidType: string, contract?: ContractType) => {
@@ -376,9 +380,11 @@ export function App() {
     }
   };
 
+  const summary = gameState.roundSummary;
+
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-950 text-slate-100 select-none overflow-hidden font-sans">
-      {/* Горна лента за резултати */}
+      {/* Gorna lenta za rezultati */}
       <header className="flex justify-between items-center px-6 py-2 bg-slate-900 border-b border-slate-800 shadow-lg z-20">
         <div className="flex gap-4 items-center">
           <span className="text-xl font-black tracking-wider text-amber-400">BELOT.BG</span>
@@ -398,17 +404,6 @@ export function App() {
               </span>
             )}
           </div>
-
-          {gameState.acceptedDeclarations && gameState.acceptedDeclarations.length > 0 && (
-            <div className="flex gap-1.5 items-center bg-slate-800/90 px-2.5 py-0.5 rounded-lg border border-emerald-500/40 text-xs">
-              <span className="text-emerald-400 font-bold">Обяви:</span>
-              {gameState.acceptedDeclarations.map((d: any, idx: number) => (
-                <span key={idx} className="bg-emerald-950 border border-emerald-700 px-1.5 py-0.2 rounded text-[11px] text-emerald-200">
-                  {d.label || d.type} (+{d.points})
-                </span>
-              ))}
-            </div>
-          )}
 
           {gameState.hangingPoints > 0 && (
             <div className="bg-amber-950 border border-amber-600 px-2.5 py-0.5 rounded-lg text-amber-300 text-xs font-bold animate-pulse">
@@ -433,13 +428,13 @@ export function App() {
         </div>
       </header>
 
-      {/* Игрална маса */}
+      {/* Igralna masa */}
       <main className="flex-1 relative flex items-center justify-center p-3">
         <div className="relative w-full max-w-5xl h-[600px] bg-gradient-to-b from-emerald-800 to-emerald-900 rounded-[70px] border-[14px] border-[#2b180d] shadow-2xl flex flex-col justify-between p-5 ring-2 ring-emerald-600/30">
 
-          {/* СЕВЕР */}
+          {/* SEVER */}
           <div className="flex flex-col items-center">
-            <div className={`px-4 py-1 rounded-full text-xs font-bold transition-all duration-300 shadow-md ${gameState.currentPlayer === 'NORTH' ? 'bg-amber-400 text-slate-950 scale-105' : 'bg-slate-900/90 text-slate-200 border border-slate-700'}`}>
+            <div className={`px-4 py-1 rounded-full text-xs font-bold transition-all duration-300 shadow-md ${gameState.currentPlayer === 'NORTH' && !gameState.isResolvingTrick ? 'bg-amber-400 text-slate-950 scale-105' : 'bg-slate-900/90 text-slate-200 border border-slate-700'}`}>
               Север (Партньор) {gameState.dealer === 'NORTH' && '★'}
             </div>
             {gameState.phase !== 'CUTTING' && (
@@ -451,11 +446,11 @@ export function App() {
             )}
           </div>
 
-          {/* СРЕДНА ЗОНА */}
+          {/* SREDNA ZONA */}
           <div className="flex justify-between items-center w-full px-6">
-            {/* ЗАПАД */}
+            {/* ZAPAD */}
             <div className="flex flex-col items-center w-28">
-              <div className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all duration-300 shadow-md ${gameState.currentPlayer === 'WEST' ? 'bg-amber-400 text-slate-950 scale-105' : 'bg-slate-900/90 text-slate-200 border border-slate-700'}`}>
+              <div className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all duration-300 shadow-md ${gameState.currentPlayer === 'WEST' && !gameState.isResolvingTrick ? 'bg-amber-400 text-slate-950 scale-105' : 'bg-slate-900/90 text-slate-200 border border-slate-700'}`}>
                 Запад {gameState.dealer === 'WEST' && '★'}
               </div>
               {gameState.phase !== 'CUTTING' && (
@@ -467,36 +462,36 @@ export function App() {
               )}
             </div>
 
-            {/* ЦЕНТЪР: КАРТИ ВЪВ ВЗЯТКАТА И СЪБИРАНЕ */}
-            <div className="relative w-[500px] h-[270px] bg-emerald-950/40 border-2 border-emerald-600/40 rounded-3xl flex items-center justify-center shadow-inner overflow-hidden">
+            {/* CENTUR: VZYATKA */}
+            <div className="relative w-[520px] h-[280px] bg-emerald-950/40 border-2 border-emerald-600/30 rounded-3xl flex items-center justify-center shadow-inner overflow-hidden">
               {gameState.phase === 'CUTTING' ? (
                 <div className="flex flex-col items-center justify-center gap-3 w-full animate-in fade-in duration-500">
                   <span className="text-xs font-black text-amber-300 uppercase tracking-wider animate-bounce">
                     {isMyTurnToCut ? 'Избери карта от ветрилото за цепене:' : `Изчаква се ${PLAYER_NAMES[gameState.cutter as PlayerPosition]} да цепи...`}
                   </span>
 
-                  <div className="relative w-[440px] h-[130px] flex items-center justify-center">
+                  <div className={`relative w-[460px] h-[130px] flex items-center justify-center transition-all duration-500 ${isCuttingDeck ? 'scale-90 opacity-40' : ''}`}>
                     {Array.from({ length: 32 }).map((_, idx) => {
-                      const offset = (idx - 15.5) * 12.5;
-                      const rotation = (idx - 15.5) * 1.8;
+                      const offset = (idx - 15.5) * 13;
+                      const rotation = (idx - 15.5) * 1.9;
                       const isHovered = hoveredCutIndex === idx;
 
                       return (
                         <button
                           key={idx}
-                          disabled={!isMyTurnToCut}
+                          disabled={!isMyTurnToCut || isCuttingDeck}
                           onMouseEnter={() => setHoveredCutIndex(idx)}
                           onMouseLeave={() => setHoveredCutIndex(null)}
                           onClick={() => handleCutCard(idx)}
                           style={{
-                            transform: `translateX(${offset}px) rotate(${rotation}deg) ${isHovered ? 'translateY(-28px) scale(1.25)' : ''}`,
+                            transform: `translateX(${offset}px) rotate(${rotation}deg) ${isHovered ? 'translateY(-32px) scale(1.28)' : ''}`,
                           }}
-                          className={`absolute w-11 h-18 bg-blue-900 rounded-lg border-2 border-blue-400 shadow-xl transition-all duration-300 ease-out ${
+                          className={`absolute w-12 h-19 bg-blue-900 rounded-lg border-2 border-blue-400 shadow-2xl transition-all duration-300 ease-out ${
                             isMyTurnToCut ? 'hover:border-amber-400 hover:z-30 cursor-pointer' : 'cursor-not-allowed opacity-90'
                           }`}
                         >
-                          <div className="w-full h-full border border-blue-300/40 rounded flex items-center justify-center">
-                            <span className="text-[9px] text-blue-200/60 font-mono">{idx + 1}</span>
+                          <div className="w-full h-full border border-blue-300/30 rounded flex items-center justify-center">
+                            <span className="text-[9px] text-blue-200/50 font-mono">{idx + 1}</span>
                           </div>
                         </button>
                       );
@@ -510,16 +505,16 @@ export function App() {
                     let animClass = '';
 
                     if (p.player === 'NORTH') {
-                      slotClasses = 'top-3 left-1/2 -translate-x-1/2';
+                      slotClasses = 'top-4 left-1/2 -translate-x-1/2';
                       animClass = 'anim-throw-north';
                     } else if (p.player === 'SOUTH') {
-                      slotClasses = 'bottom-3 left-1/2 -translate-x-1/2';
+                      slotClasses = 'bottom-4 left-1/2 -translate-x-1/2';
                       animClass = 'anim-throw-south';
                     } else if (p.player === 'WEST') {
-                      slotClasses = 'left-5 top-1/2 -translate-y-1/2';
+                      slotClasses = 'left-8 top-1/2 -translate-y-1/2';
                       animClass = 'anim-throw-west';
                     } else if (p.player === 'EAST') {
-                      slotClasses = 'right-5 top-1/2 -translate-y-1/2';
+                      slotClasses = 'right-8 top-1/2 -translate-y-1/2';
                       animClass = 'anim-throw-east';
                     }
 
@@ -527,11 +522,10 @@ export function App() {
 
                     return (
                       <div key={`${p.player}-${idx}`} className={`absolute flex flex-col items-center ${slotClasses} ${finalAnimClass} z-20`}>
-                        <span className="text-[10px] text-emerald-300 font-bold mb-0.5">{PLAYER_NAMES[p.player as PlayerPosition]?.split(' ')[0]}</span>
-                        <div className="w-15 h-22 bg-white rounded-lg shadow-2xl flex flex-col items-center justify-between p-1.5 border border-slate-300 ring-1 ring-black/10 transition-transform duration-500">
-                          <span className={`text-xs font-black self-start leading-none ${SUIT_COLORS[p.card.suit as Suit]}`}>{p.card.rank}</span>
-                          <span className={`text-2xl leading-none ${SUIT_COLORS[p.card.suit as Suit]}`}>{SUIT_SYMBOLS[p.card.suit as Suit]}</span>
-                          <span className={`text-[10px] font-bold self-end leading-none ${SUIT_COLORS[p.card.suit as Suit]}`}>{p.card.rank}</span>
+                        <div className="w-16 h-24 bg-white rounded-xl shadow-2xl flex flex-col items-center justify-between p-2 border border-slate-300 ring-1 ring-black/10">
+                          <span className={`text-sm font-black self-start leading-none ${SUIT_COLORS[p.card.suit as Suit]}`}>{p.card.rank}</span>
+                          <span className={`text-3xl leading-none ${SUIT_COLORS[p.card.suit as Suit]}`}>{SUIT_SYMBOLS[p.card.suit as Suit]}</span>
+                          <span className={`text-xs font-bold self-end leading-none ${SUIT_COLORS[p.card.suit as Suit]}`}>{p.card.rank}</span>
                         </div>
                       </div>
                     );
@@ -539,32 +533,16 @@ export function App() {
 
                   {gameState.currentTrickCards.length === 0 && !gameState.isResolvingTrick && (
                     <div className="w-full h-full flex items-center justify-center">
-                      <span className="text-xs text-emerald-300/40 font-medium">Чака се първа карта...</span>
-                    </div>
-                  )}
-
-                  {gameState.isResolvingTrick && gameState.trickWinner && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center z-30 bg-slate-950/40 backdrop-blur-[2px] rounded-3xl animate-in fade-in zoom-in-95 duration-300">
-                      <div className="px-6 py-3 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 rounded-2xl font-black shadow-2xl flex flex-col items-center gap-1 border-2 border-amber-200">
-                        <span className="text-base tracking-wide flex items-center gap-1.5">
-                          <span>Взема:</span>
-                          <strong className="text-slate-950 font-black underline underline-offset-2">
-                            {PLAYER_NAMES[gameState.trickWinner as PlayerPosition]}
-                          </strong>
-                        </span>
-                        <span className="text-xs font-black bg-slate-950 text-amber-300 px-3 py-0.5 rounded-full shadow-inner">
-                          +{gameState.trickPoints} точки
-                        </span>
-                      </div>
+                      <span className="text-xs text-emerald-300/30 font-medium">Чака се ход...</span>
                     </div>
                   )}
                 </div>
               )}
             </div>
 
-            {/* ИЗТОК */}
+            {/* IZTOK */}
             <div className="flex flex-col items-center w-28">
-              <div className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all duration-300 shadow-md ${gameState.currentPlayer === 'EAST' ? 'bg-amber-400 text-slate-950 scale-105' : 'bg-slate-900/90 text-slate-200 border border-slate-700'}`}>
+              <div className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all duration-300 shadow-md ${gameState.currentPlayer === 'EAST' && !gameState.isResolvingTrick ? 'bg-amber-400 text-slate-950 scale-105' : 'bg-slate-900/90 text-slate-200 border border-slate-700'}`}>
                 Изток {gameState.dealer === 'EAST' && '★'}
               </div>
               {gameState.phase !== 'CUTTING' && (
@@ -577,7 +555,7 @@ export function App() {
             </div>
           </div>
 
-          {/* ЮГ */}
+          {/* YUG */}
           <div className="flex flex-col items-center relative">
             {canShowAnnouncementsPanel && (
               <div className="mb-2 bg-slate-900/95 border border-emerald-500/80 px-3.5 py-2 rounded-2xl shadow-2xl flex items-center gap-2 animate-in fade-in duration-300">
@@ -604,13 +582,12 @@ export function App() {
               </div>
             )}
 
-            {/* Бутон за сортиране */}
+            {/* Sortirane */}
             {gameState.phase !== 'CUTTING' && gameState.myHand && gameState.myHand.length > 0 && (
               <div className="mb-2">
                 <button
                   onClick={() => setSortDescending(!sortDescending)}
                   className="group relative flex items-center gap-2 px-3.5 py-1.5 bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 hover:border-amber-400/80 rounded-full shadow-lg backdrop-blur-md cursor-pointer transition-all duration-200 active:scale-95"
-                  title="Смени посоката на сортиране"
                 >
                   <div className={`w-5 h-5 rounded-full flex items-center justify-center bg-amber-400/10 text-amber-400 transition-transform duration-300 ${sortDescending ? 'rotate-0' : 'rotate-180'}`}>
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -627,7 +604,7 @@ export function App() {
               </div>
             )}
 
-            {/* Панел за наддаване */}
+            {/* Bidding panel */}
             {isMyTurnToBid && (
               <div className="absolute -top-28 bg-slate-900/95 border-2 border-amber-500/80 p-3 rounded-2xl shadow-2xl flex flex-col items-center gap-2 z-30 animate-in fade-in duration-300">
                 <span className="text-[10px] font-black text-amber-400 uppercase tracking-wider">Твой ред за анонс:</span>
@@ -678,15 +655,19 @@ export function App() {
               </div>
             )}
 
-            {/* Ръка на Юг */}
+            {/* Ruka na Yug */}
             {gameState.phase !== 'CUTTING' && (
               <div className="flex gap-2 mb-2 z-10">
-                {sortedMyHand.map((card: Card) => {
+                {sortedMyHand.map((card: Card, cardIdx: number) => {
                   const playable = isCardPlayable(card);
                   const hasBelot = canDeclareBelotWithCard(card);
 
                   return (
-                    <div key={card.id} className="relative group">
+                    <div
+                      key={card.id}
+                      style={{ animationDelay: `${cardIdx * 45}ms` }}
+                      className="relative group anim-deal-south"
+                    >
                       {isMyTurnToPlay && playable && hasBelot && (
                         <button
                           onClick={() => playCard(card, true)}
@@ -722,16 +703,107 @@ export function App() {
             </div>
           </div>
         </div>
+
+        {/* TABLO S REZULTATITE SLED KRAQ NA RUNDA (PO DIZAINA OT SNIMKATA) */}
+        {gameState.phase === 'ROUND_OVER' && summary && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="w-[520px] bg-[#0c1824]/95 border-2 border-amber-500/70 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100">
+              
+              {/* Gorna lenta s dogovora */}
+              <div className="flex items-center justify-center gap-2 py-3 bg-[#0a141f] border-b border-amber-500/30">
+                <span className="text-xl text-rose-500">♦</span>
+                <span className="text-lg font-black tracking-wider text-white uppercase">{summary.contractTitle}</span>
+              </div>
+
+              {/* Koloni: NIE i VIE */}
+              <div className="grid grid-cols-12 px-6 pt-3 pb-1 text-amber-400 font-extrabold text-base tracking-wider">
+                <div className="col-span-6"></div>
+                <div className="col-span-3 text-center">НИЕ</div>
+                <div className="col-span-3 text-center">ВИЕ</div>
+              </div>
+
+              {/* Redove s danni */}
+              <div className="flex flex-col text-sm font-semibold divide-y divide-amber-500/20 px-6">
+                
+                {/* Beloti */}
+                <div className="grid grid-cols-12 py-2.5 items-center">
+                  <div className="col-span-6 text-slate-300 tracking-wide">БЕЛОТИ</div>
+                  <div className="col-span-3 text-center font-bold">{summary.belotPointsNS}</div>
+                  <div className="col-span-3 text-center font-bold">{summary.belotPointsEW}</div>
+                </div>
+
+                {/* Obqvqvane */}
+                <div className="grid grid-cols-12 py-2.5 items-center">
+                  <div className="col-span-6 text-slate-300 tracking-wide">ОБЯВЯВАНЕ</div>
+                  <div className="col-span-3 flex justify-center items-center gap-1 text-xs">
+                    {summary.declarationsNS.length > 0 ? (
+                      summary.declarationsNS.map((d: any, idx: number) => (
+                        <span key={idx} className={d.isCrossed ? 'line-through text-slate-500 decoration-rose-500 decoration-2' : 'text-amber-300 font-bold'}>
+                          {d.label}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-slate-500">0</span>
+                    )}
+                  </div>
+                  <div className="col-span-3 flex justify-center items-center gap-1 text-xs">
+                    {summary.declarationsEW.length > 0 ? (
+                      summary.declarationsEW.map((d: any, idx: number) => (
+                        <span key={idx} className={d.isCrossed ? 'line-through text-slate-500 decoration-rose-500 decoration-2' : 'text-amber-300 font-bold'}>
+                          {d.label}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-slate-500">0</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Ot racete */}
+                <div className="grid grid-cols-12 py-2.5 items-center">
+                  <div className="col-span-6 text-slate-300 tracking-wide">ОТ РЪЦЕТЕ</div>
+                  <div className="col-span-3 text-center font-bold">{summary.handPointsNS}</div>
+                  <div className="col-span-3 text-center font-bold">{summary.handPointsEW}</div>
+                </div>
+
+                {/* Sbor */}
+                <div className="grid grid-cols-12 py-2.5 items-center">
+                  <div className="col-span-6 text-slate-300 tracking-wide">СБОР</div>
+                  <div className="col-span-3 text-center font-bold">{summary.totalPointsNS}</div>
+                  <div className="col-span-3 text-center font-bold">{summary.totalPointsEW}</div>
+                </div>
+
+                {/* Izhod */}
+                <div className="grid grid-cols-12 py-2.5 items-center">
+                  <div className="col-span-6 text-slate-300 tracking-wide">ИЗХОД</div>
+                  <div className="col-span-6 text-center font-bold text-amber-300">
+                    {summary.outcomeText}
+                  </div>
+                </div>
+              </div>
+
+              {/* Oranjeviq red REZULTAT */}
+              <div className="grid grid-cols-12 px-6 py-2.5 bg-[#f59e0b] text-slate-950 font-black text-base items-center mt-2 shadow-inner">
+                <div className="col-span-6 tracking-wider">РЕЗУЛТАТ</div>
+                <div className="col-span-3 text-center text-lg">{summary.scoreAddedNS}</div>
+                <div className="col-span-3 text-center text-lg">{summary.scoreAddedEW}</div>
+              </div>
+
+              {/* Dolno otbroqvane */}
+              <div className="py-2.5 bg-[#09111a] text-center text-xs text-slate-400 font-medium tracking-wide border-t border-slate-800">
+                Играта продължава след {countdownSeconds} сек.
+              </div>
+
+            </div>
+          </div>
+        )}
       </main>
 
-      {/* Долна лента */}
+      {/* Dolna lenta */}
       <footer className="px-6 py-2 bg-slate-900 border-t border-slate-800 flex justify-between items-center text-xs">
         <span className="text-slate-400">
           Фаза: <strong className="text-slate-200 ml-1">{gameState.phase}</strong> | На ход: <strong className="text-slate-200 ml-1">{PLAYER_NAMES[gameState.currentPlayer as PlayerPosition]}</strong>
         </span>
-        {gameState.reasonForContinuation && (
-          <span className="text-amber-400 font-bold animate-pulse">{gameState.reasonForContinuation}</span>
-        )}
       </footer>
     </div>
   );
