@@ -315,7 +315,7 @@ class BelotGameEngine {
 
     this.trickWinner = winner;
 
-    // 2200ms fiksiran delay, taka che chetvartata karta da sedi napulno spokoino na masata predi chistene
+    // 2.2s задържане на 4-те карти преди да започне следващият ход или таблото
     setTimeout(() => {
       this.isResolvingTrick = false;
       this.currentTrickCards = [];
@@ -390,12 +390,12 @@ class BelotGameEngine {
 
     broadcastState();
 
-    // 8 sekundi pokazvane na tablotot za krai na runda, predi novoto razdavane!
+    // Таблото стои 8.5 секунди на екрана преди новото цепене и раздаване
     setTimeout(() => {
       this.dealer = NEXT_PLAYER[this.dealer];
       this.startNewRound();
       broadcastState();
-    }, 8000);
+    }, 8500);
   }
 
   public getPayloadFor(targetPlayer: PlayerPosition = 'SOUTH') {
@@ -480,7 +480,7 @@ function handleBotNextAction() {
 
       game.playCard(botPos, chosenCard);
       broadcastState();
-    }, 1300);
+    }, 1250);
   }
 }
 

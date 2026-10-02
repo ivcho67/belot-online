@@ -52,7 +52,8 @@ export function App() {
   const [cutStep, setCutStep] = useState<number>(0);
   const [speechBubbles, setSpeechBubbles] = useState<Record<string, string>>({});
   const [countdown, setCountdown] = useState(8);
-  const [persistedSummary, setPersistedSummary] = useState<any>(null);
+  const [activeRoundSummary, setActiveRoundSummary] = useState<any>(null);
+  const [isCollectingVisual, setIsCollectingVisual] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -69,14 +70,29 @@ export function App() {
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'GAME_STATE_UPDATE') {
-        setGameState(data.payload);
+        const payload = data.payload;
+        setGameState(payload);
 
-        if (data.payload.roundSummary) {
-          setPersistedSummary(data.payload.roundSummary);
+        // Управление на прибирането на картите
+        if (payload.isResolvingTrick) {
+          // Задържане на 4-те карти за 1.4 секунди преди да започне плъзгането
+          const timer = setTimeout(() => {
+            setIsCollectingVisual(true);
+          }, 1400);
+          return () => clearTimeout(timer);
+        } else {
+          setIsCollectingVisual(false);
         }
 
-        if (data.payload.lastAction) {
-          const act = data.payload.lastAction;
+        // Показване на таблото при края на рунда
+        if (payload.phase === 'ROUND_OVER' && payload.roundSummary) {
+          setActiveRoundSummary(payload.roundSummary);
+        } else if (payload.phase === 'CUTTING') {
+          setActiveRoundSummary(null);
+        }
+
+        if (payload.lastAction) {
+          const act = payload.lastAction;
           setSpeechBubbles(prev => ({ ...prev, [act.player]: act.text }));
           setTimeout(() => {
             setSpeechBubbles(prev => {
@@ -99,8 +115,6 @@ export function App() {
         setCountdown(c => (c > 1 ? c - 1 : 1));
       }, 1000);
       return () => clearInterval(interval);
-    } else if (gameState?.phase === 'CUTTING') {
-      setPersistedSummary(null);
     }
   }, [gameState?.phase]);
 
@@ -255,7 +269,7 @@ export function App() {
   const isMyTurnToPlay = gameState.phase === 'PLAYING' && gameState.currentPlayer === 'SOUTH' && !gameState.isResolvingTrick;
 
   const getCollectAnimClass = () => {
-    if (!gameState.isResolvingTrick || !gameState.trickWinner) return '';
+    if (!isCollectingVisual || !gameState.trickWinner) return '';
     switch (gameState.trickWinner) {
       case 'SOUTH': return 'anim-collect-south';
       case 'NORTH': return 'anim-collect-north';
@@ -265,12 +279,12 @@ export function App() {
     }
   };
 
-  const summary = gameState.roundSummary || persistedSummary;
+  const summary = activeRoundSummary || gameState.roundSummary;
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#132f42] select-none overflow-hidden font-sans relative">
       
-      {/* Tablo za tochki gore vlyavo */}
+      {/* Табло за точки горе вляво */}
       <div className="absolute top-5 left-6 z-30 flex items-center gap-3">
         <div className="bg-[#0f2434]/95 border-2 border-[#1f4e70] rounded-2xl px-5 py-2.5 shadow-2xl flex items-center gap-6">
           <div className="flex flex-col items-center">
@@ -296,11 +310,11 @@ export function App() {
         )}
       </div>
 
-      {/* Masata */}
+      {/* Масата */}
       <main className="flex-1 relative flex items-center justify-center p-4">
         <div className="relative w-[1060px] h-[700px] bg-[#23587c] rounded-[180px] border-[18px] border-[#163a52] shadow-2xl flex flex-col justify-between p-6 ring-4 ring-[#0d2230]/40">
 
-          {/* Sever (Bot 1) */}
+          {/* Север (Bot 1) */}
           <div className="flex flex-col items-center relative">
             {speechBubbles['NORTH'] && (
               <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
@@ -320,10 +334,10 @@ export function App() {
             )}
           </div>
 
-          {/* Sredna liniq */}
+          {/* Средна линия */}
           <div className="flex justify-between items-center w-full px-6">
             
-            {/* Zapad (Bot 3) */}
+            {/* Запад (Bot 3) */}
             <div className="flex flex-col items-center relative w-28">
               {speechBubbles['WEST'] && (
                 <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
@@ -343,7 +357,7 @@ export function App() {
               )}
             </div>
 
-            {/* Centar: Dvusloen render na vzyatkata */}
+            {/* Център: Взятка */}
             <div className="relative w-[560px] h-[330px] flex items-center justify-center">
 
               {gameState.phase === 'CUTTING' && (
@@ -385,7 +399,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Dqsnoto teste za razdavane */}
+              {/* Дясното тесте за раздаване */}
               {gameState.phase !== 'CUTTING' && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 w-20 h-28 bg-[#102d42] rounded-2xl border-2 border-blue-400/60 shadow-2xl flex items-center justify-center pointer-events-none opacity-85 z-10">
                   <div className="w-16 h-22 border border-blue-300/30 rounded-xl flex items-center justify-center">
@@ -394,7 +408,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Vzyatka: Dvusloen render, garantirasht lipsa na podskachane ili naglo izchezvane */}
+              {/* Двуслоен рендер на картите на масата */}
               {gameState.phase !== 'CUTTING' && (
                 <div className="w-full h-full relative flex items-center justify-center">
                   {gameState.currentTrickCards.map((tc: any, idx: number) => {
@@ -415,7 +429,7 @@ export function App() {
                       slotOffset = 'translate-x-[28px] rotate-[5deg]';
                     }
 
-                    const collectAnim = gameState.isResolvingTrick ? getCollectAnimClass() : '';
+                    const collectAnim = getCollectAnimClass();
                     const cardColor = SUIT_HEX[tc.card.suit as Suit];
 
                     return (
@@ -424,7 +438,7 @@ export function App() {
                         style={{ zIndex: idx + 10 }}
                         className={`absolute flex items-center justify-center pointer-events-none ${collectAnim}`}
                       >
-                        <div className={`${slotOffset} ${!gameState.isResolvingTrick ? throwAnim : ''}`}>
+                        <div className={`${slotOffset} ${!isCollectingVisual ? throwAnim : ''}`}>
                           <div
                             style={{ color: cardColor }}
                             className="w-24 h-36 bg-white rounded-2xl shadow-2xl flex flex-col items-center justify-between p-2.5 border-2 border-slate-300 ring-2 ring-black/10"
@@ -446,7 +460,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Naddavane */}
+              {/* Панел за наддаване */}
               {isMyTurnToBid && (
                 <div className="absolute z-40 bg-white rounded-3xl shadow-2xl border-2 border-slate-300 p-4 flex flex-col items-center gap-3 animate-in zoom-in-90 duration-200">
                   <div className="grid grid-cols-2 gap-2.5 w-72">
@@ -477,7 +491,7 @@ export function App() {
 
             </div>
 
-            {/* Iztok (Bot 2) */}
+            {/* Изток (Bot 2) */}
             <div className="flex flex-col items-center relative w-28">
               {speechBubbles['EAST'] && (
                 <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
@@ -499,7 +513,7 @@ export function App() {
 
           </div>
 
-          {/* Yug (Igrachut) */}
+          {/* Юг (Играчът) */}
           <div className="flex flex-col items-center relative">
             {speechBubbles['SOUTH'] && (
               <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
@@ -558,8 +572,8 @@ export function App() {
 
         </div>
 
-        {/* Tablo za rezultata sled kraq na runda */}
-        {(gameState.phase === 'ROUND_OVER' || persistedSummary) && summary && (
+        {/* ТАБЛО С РЕЗУЛТАТИТЕ СЛЕД РУНДА (ОТ СКРИЙНШОТА) */}
+        {summary && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-300">
             <div className="w-[540px] bg-[#0c1824] border-2 border-amber-500 rounded-3xl shadow-2xl overflow-hidden flex flex-col text-slate-100">
               
