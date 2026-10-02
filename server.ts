@@ -296,7 +296,7 @@ class BelotGameEngine {
 
     this.trickWinner = winner;
 
-    // Tochno 950ms ogled na masata predi pribiraneto kato v originala
+    // Tochno 850ms zadarzhane sled 4-tata karta predi sabirane
     setTimeout(() => {
       this.isResolvingTrick = false;
       this.currentTrickCards = [];
@@ -308,7 +308,7 @@ class BelotGameEngine {
         this.currentTrickNumber++;
         broadcastState();
       }
-    }, 950);
+    }, 850);
   }
 
   private finalizeRound() {
@@ -374,7 +374,7 @@ function handleBotNextAction() {
     setTimeout(() => {
       game.cutDeck(16);
       broadcastState();
-    }, 800);
+    }, 700);
     return;
   }
 
@@ -382,7 +382,7 @@ function handleBotNextAction() {
     setTimeout(() => {
       game.makeBid(game.currentPlayer, 'PASS');
       broadcastState();
-    }, 750); // Realistichno tempo za vzehane na reshenie ot bota
+    }, 650);
     return;
   }
 
@@ -398,7 +398,7 @@ function handleBotNextAction() {
 
       game.playCard(botPos, chosenCard);
       broadcastState();
-    }, 850);
+    }, 750);
   }
 }
 

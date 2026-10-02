@@ -11,14 +11,6 @@ interface Card {
   rank: Rank;
 }
 
-interface DeclarationItem {
-  id: string;
-  type: string;
-  points: number;
-  label: string;
-  cards: Card[];
-}
-
 const SUIT_SYMBOLS: Record<Suit, string> = {
   CLUBS: '♣',
   DIAMONDS: '♦',
@@ -54,8 +46,6 @@ const SUIT_SORT_INDEX: Record<Suit, number> = {
   CLUBS: 0, DIAMONDS: 1, HEARTS: 2, SPADES: 3
 };
 
-const SEQUENCE_ORDER: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-
 export function App() {
   const [gameState, setGameState] = useState<any>(null);
   const [hoveredCutIndex, setHoveredCutIndex] = useState<number | null>(null);
@@ -79,7 +69,6 @@ export function App() {
       if (data.type === 'GAME_STATE_UPDATE') {
         setGameState(data.payload);
 
-        // Pokazvane na rechevi baboli pri deistvie
         if (data.payload.lastAction) {
           const act = data.payload.lastAction;
           setSpeechBubbles(prev => ({ ...prev, [act.player]: act.text }));
@@ -265,7 +254,7 @@ export function App() {
   return (
     <div className="flex flex-col h-screen w-screen bg-[#1e4d6e] select-none overflow-hidden font-sans relative">
       
-      {/* GORE V DQVNO / V LQSNO: TABLO TOCHKI "НИЕ" / "ВИЕ" KATO V BELOT.BG */}
+      {/* Tablo za tochki vlyavo kato v Belot.bg */}
       <div className="absolute top-5 left-6 z-30 flex gap-2">
         <div className="bg-[#153a54]/90 border border-[#2b648f] rounded-xl px-4 py-2 shadow-lg flex items-center gap-6">
           <div className="flex flex-col items-center">
@@ -291,11 +280,11 @@ export function App() {
         )}
       </div>
 
-      {/* OSNOVNA MASA */}
+      {/* Masata */}
       <main className="flex-1 relative flex items-center justify-center p-2">
         <div className="relative w-[960px] h-[640px] bg-[#2a6892] rounded-[180px] border-[16px] border-[#1d4c6d] shadow-2xl flex flex-col justify-between p-6 ring-4 ring-[#163d59]/50">
 
-          {/* SEVER (BOT 1) */}
+          {/* Sever (Bot 1) */}
           <div className="flex flex-col items-center relative">
             {speechBubbles['NORTH'] && (
               <div className="absolute -top-10 px-3 py-1 bg-white text-slate-900 font-black text-xs rounded-xl shadow-2xl border border-slate-300 animate-in zoom-in-75 duration-200">
@@ -309,16 +298,16 @@ export function App() {
             {gameState.phase !== 'CUTTING' && (
               <div className="flex gap-1 mt-1.5">
                 {Array.from({ length: gameState.handsOverview.NORTH.cardCount }).map((_, i) => (
-                  <div key={i} className="w-6 h-9 bg-[#1b3e5a] rounded border border-blue-400/60 shadow"></div>
+                  <div key={i} style={{ animationDelay: `${i * 60}ms` }} className="w-6 h-9 bg-[#1b3e5a] rounded border border-blue-400/60 shadow anim-deal-north"></div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* SREDNA LINIA: ZAPAD, MASA, IZTOK */}
+          {/* Sredna liniq */}
           <div className="flex justify-between items-center w-full px-4">
             
-            {/* ZAPAD (BOT 3) */}
+            {/* Zapad (Bot 3) */}
             <div className="flex flex-col items-center relative w-24">
               {speechBubbles['WEST'] && (
                 <div className="absolute -top-9 px-3 py-1 bg-white text-slate-900 font-black text-xs rounded-xl shadow-2xl border border-slate-300 animate-in zoom-in-75 duration-200">
@@ -332,16 +321,15 @@ export function App() {
               {gameState.phase !== 'CUTTING' && (
                 <div className="flex flex-col gap-1 mt-2">
                   {Array.from({ length: gameState.handsOverview.WEST.cardCount }).map((_, i) => (
-                    <div key={i} className="w-9 h-5 bg-[#1b3e5a] rounded border border-blue-400/60 shadow"></div>
+                    <div key={i} style={{ animationDelay: `${i * 60}ms` }} className="w-9 h-5 bg-[#1b3e5a] rounded border border-blue-400/60 shadow anim-deal-west"></div>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* CENTUR: CEPENE, TESTE I VZYATKA */}
+            {/* Centar: Cepene i vzyatka */}
             <div className="relative w-[500px] h-[300px] flex items-center justify-center">
 
-              {/* FAZA CEPENE: 1 KUM 1 KATO V VIDEOTO */}
               {gameState.phase === 'CUTTING' && (
                 <div className="flex flex-col items-center gap-3 w-full animate-in fade-in duration-300">
                   <span className="text-xl font-black text-white tracking-wide uppercase drop-shadow">
@@ -381,7 +369,7 @@ export function App() {
                 </div>
               )}
 
-              {/* POSTOQNNO TESTE V DQVNO KATO V VIDEOTO SLED CEPENE */}
+              {/* Dqsnoto teste za razdavane */}
               {gameState.phase !== 'CUTTING' && (
                 <div className="absolute right-4 top-1/2 -translate-y-1/2 w-16 h-24 bg-[#183952] rounded-xl border-2 border-blue-400/50 shadow-2xl flex items-center justify-center pointer-events-none opacity-80">
                   <div className="w-12 h-18 border border-blue-300/30 rounded flex items-center justify-center">
@@ -390,7 +378,7 @@ export function App() {
                 </div>
               )}
 
-              {/* VZYATKA V CENTURA: KARTITE PADAT ESTESTVENO NATRUPANI EDNA VARHU DRUGA */}
+              {/* Vzyatka v centara */}
               {gameState.phase !== 'CUTTING' && (
                 <div className="w-full h-full relative flex items-center justify-center">
                   {gameState.currentTrickCards.map((tc: any, idx: number) => {
@@ -430,7 +418,7 @@ export function App() {
                 </div>
               )}
 
-              {/* BQLOTO TABLO ZA NADDAVANE V SREDATA (KATO V MINUTA 0:11 OT VIDEOTO) */}
+              {/* Tablo za naddavane v centara */}
               {isMyTurnToBid && (
                 <div className="absolute z-40 bg-white/95 rounded-2xl shadow-2xl border border-slate-300 p-2.5 flex flex-col items-center gap-2 animate-in zoom-in-90 duration-200">
                   <div className="grid grid-cols-2 gap-2 w-64">
@@ -461,7 +449,7 @@ export function App() {
 
             </div>
 
-            {/* IZTOK (BOT 2) */}
+            {/* Iztok (Bot 2) */}
             <div className="flex flex-col items-center relative w-24">
               {speechBubbles['EAST'] && (
                 <div className="absolute -top-9 px-3 py-1 bg-white text-slate-900 font-black text-xs rounded-xl shadow-2xl border border-slate-300 animate-in zoom-in-75 duration-200">
@@ -475,7 +463,7 @@ export function App() {
               {gameState.phase !== 'CUTTING' && (
                 <div className="flex flex-col gap-1 mt-2">
                   {Array.from({ length: gameState.handsOverview.EAST.cardCount }).map((_, i) => (
-                    <div key={i} className="w-9 h-5 bg-[#1b3e5a] rounded border border-blue-400/60 shadow"></div>
+                    <div key={i} style={{ animationDelay: `${i * 60}ms` }} className="w-9 h-5 bg-[#1b3e5a] rounded border border-blue-400/60 shadow anim-deal-east"></div>
                   ))}
                 </div>
               )}
@@ -483,7 +471,7 @@ export function App() {
 
           </div>
 
-          {/* YUG (IGRACHUT) */}
+          {/* Yug (Igrachut) */}
           <div className="flex flex-col items-center relative">
             {speechBubbles['SOUTH'] && (
               <div className="absolute -top-9 px-3 py-1 bg-white text-slate-900 font-black text-xs rounded-xl shadow-2xl border border-slate-300 animate-in zoom-in-75 duration-200">
@@ -491,14 +479,14 @@ export function App() {
               </div>
             )}
 
-            {/* VETRILOTO S KARTITE NA IGRACHA S LEKO ZAOKRAVQLQNE I PRIKRIVANE */}
+            {/* Kartite na igracha s kaskadno izlitane ot dqsno */}
             {gameState.phase !== 'CUTTING' && (
               <div className="flex justify-center items-end h-32 mb-2 relative">
                 {sortedMyHand.map((c: Card, idx: number) => {
                   const total = sortedMyHand.length;
-                  const rot = (idx - (total - 1) / 2) * 4;
-                  const transX = (idx - (total - 1) / 2) * 36;
-                  const transY = Math.abs(idx - (total - 1) / 2) * 3;
+                  const rot = (idx - (total - 1) / 2) * 3.8;
+                  const transX = (idx - (total - 1) / 2) * 34;
+                  const transY = Math.abs(idx - (total - 1) / 2) * 2.8;
                   const playable = isCardPlayable(c);
 
                   return (
@@ -509,8 +497,9 @@ export function App() {
                       style={{
                         transform: `translateX(${transX}px) translateY(${transY}px) rotate(${rot}deg)`,
                         zIndex: idx + 10,
+                        animationDelay: `${idx * 70}ms`,
                       }}
-                      className={`absolute w-20 h-30 bg-white rounded-2xl shadow-2xl flex flex-col items-center justify-between p-2 border-2 transition-all duration-200 ${
+                      className={`absolute w-20 h-30 bg-white rounded-2xl shadow-2xl flex flex-col items-center justify-between p-2 border-2 transition-transform duration-200 anim-deal-south ${
                         isMyTurnToPlay
                           ? playable
                             ? 'border-emerald-500 hover:-translate-y-8 cursor-pointer'
