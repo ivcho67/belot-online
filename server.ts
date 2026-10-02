@@ -13,6 +13,21 @@ export interface Card {
   rank: Rank;
 }
 
+export interface RoundSummary {
+  contractTitle: string;
+  belotPointsNS: number;
+  belotPointsEW: number;
+  declarationsNS: { label: string; points: number }[];
+  declarationsEW: { label: string; points: number }[];
+  handPointsNS: number;
+  handPointsEW: number;
+  totalPointsNS: number;
+  totalPointsEW: number;
+  outcomeText: string;
+  scoreAddedNS: number;
+  scoreAddedEW: number;
+}
+
 const SUITS: Suit[] = ['CLUBS', 'DIAMONDS', 'HEARTS', 'SPADES'];
 const RANKS: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
@@ -63,6 +78,7 @@ class BelotGameEngine {
   public isResolvingTrick: boolean = false;
   public trickWinner?: PlayerPosition;
   public lastAction?: { player: PlayerPosition; text: string };
+  public roundSummary: RoundSummary | null = null;
 
   constructor() {
     this.startNewRound();
@@ -85,6 +101,7 @@ class BelotGameEngine {
     this.isResolvingTrick = false;
     this.trickWinner = undefined;
     this.lastAction = undefined;
+    this.roundSummary = null;
 
     this.phase = 'CUTTING';
     this.cutter = NEXT_PLAYER[this.dealer];
@@ -134,9 +151,15 @@ class BelotGameEngine {
       this.auction.consecutivePasses++;
       this.lastAction = { player, text: 'ПАС' };
 
+      // Ако всички са пасували 4 пъти, ботът прави анонс по подразбиране, за да се играе рунд!
       if (!this.auction.currentContract && this.auction.consecutivePasses >= 4) {
-        this.dealer = NEXT_PLAYER[this.dealer];
-        this.startNewRound();
+        this.auction.currentContract = 'ALL_TRUMP';
+        this.auction.declarer = player;
+        this.lastAction = { player, text: 'ВСИЧКО КОЗ' };
+        this.dealRemainingThree();
+        this.phase = 'PLAYING';
+        this.currentTrickNumber = 1;
+        this.currentPlayer = NEXT_PLAYER[this.dealer];
         return;
       }
 
@@ -212,8 +235,7 @@ class BelotGameEngine {
       (player === 'WEST' && winner === 'EAST');
 
     if (contract === 'NO_TRUMP') {
-      if (hasLeadSuit) return card.suit === leadSuit;
-      return true;
+      return hasLeadSuit ? card.suit === leadSuit : true;
     }
 
     if (contract === 'ALL_TRUMP') {
@@ -227,9 +249,7 @@ class BelotGameEngine {
     }
 
     const trumpSuit = contract as Suit;
-    const isLeadTrump = leadSuit === trumpSuit;
-
-    if (isLeadTrump) {
+    if (leadSuit === trumpSuit) {
       if (hasLeadSuit) {
         if (card.suit !== trumpSuit) return false;
         const higherTrumps = hand.filter(c => c.suit === trumpSuit && TRUMP_POWER[c.rank] > highestPower);
@@ -242,12 +262,12 @@ class BelotGameEngine {
     if (hasLeadSuit) return card.suit === leadSuit;
     if (isPartnerWinning) return true;
 
-    const trumpsInHand = hand.filter(c => c.suit === trumpSuit);
-    if (trumpsInHand.length > 0) {
+    const trumps = hand.filter(c => c.suit === trumpSuit);
+    if (trumps.length > 0) {
       if (card.suit !== trumpSuit) return false;
       if (highestIsTrump) {
-        const higherTrumps = trumpsInHand.filter(c => TRUMP_POWER[c.rank] > highestPower);
-        if (higherTrumps.length > 0) return TRUMP_POWER[card.rank] > highestPower;
+        const higher = trumps.filter(c => TRUMP_POWER[c.rank] > highestPower);
+        if (higher.length > 0) return TRUMP_POWER[card.rank] > highestPower;
         return true;
       }
       return true;
@@ -296,7 +316,7 @@ class BelotGameEngine {
 
     this.trickWinner = winner;
 
-    // Tochno 850ms zadarzhane sled 4-tata karta predi sabirane
+    // ТОЧНО 2.5 СЕКУНДИ ДЕЛЕЙ: четвъртата карта остава напълно видима на масата!
     setTimeout(() => {
       this.isResolvingTrick = false;
       this.currentTrickCards = [];
@@ -308,21 +328,75 @@ class BelotGameEngine {
         this.currentTrickNumber++;
         broadcastState();
       }
-    }, 850);
+    }, 2500);
   }
 
   private finalizeRound() {
     this.phase = 'ROUND_OVER';
-    this.scores.NORTH_SOUTH += Math.round(this.rawCardPoints.NORTH_SOUTH / 10);
-    this.scores.EAST_WEST += Math.round(this.rawCardPoints.EAST_WEST / 10);
+    const declarer = this.auction.declarer!;
+    const declarerIsNS = (declarer === 'SOUTH' || declarer === 'NORTH');
+
+    const totalRawNS = this.rawCardPoints.NORTH_SOUTH;
+    const totalRawEW = this.rawCardPoints.EAST_WEST;
+
+    const declarerTotal = declarerIsNS ? totalRawNS : totalRawEW;
+    const defenderTotal = declarerIsNS ? totalRawEW : totalRawNS;
+
+    let scoreNS = 0;
+    let scoreEW = 0;
+    let outcomeText = 'Изкарана';
+
+    if (declarerTotal > defenderTotal) {
+      scoreNS = Math.round(totalRawNS / 10);
+      scoreEW = Math.round(totalRawEW / 10);
+      outcomeText = 'Изкарана';
+    } else {
+      const allPoints = Math.round((totalRawNS + totalRawEW) / 10);
+      if (declarerIsNS) {
+        scoreNS = 0;
+        scoreEW = allPoints;
+      } else {
+        scoreEW = 0;
+        scoreNS = allPoints;
+      }
+      outcomeText = 'Вътре';
+    }
+
+    this.scores.NORTH_SOUTH += scoreNS;
+    this.scores.EAST_WEST += scoreEW;
+
+    const CONTRACT_TITLES: Record<string, string> = {
+      CLUBS: 'СПАТИЯ ♣',
+      DIAMONDS: 'КАРО ♦',
+      HEARTS: 'КУПА ♥',
+      SPADES: 'ПИКА ♠',
+      NO_TRUMP: 'БЕЗ КОЗ',
+      ALL_TRUMP: 'ВСИЧКО КОЗ',
+    };
+
+    this.roundSummary = {
+      contractTitle: `${CONTRACT_TITLES[this.auction.currentContract || 'ALL_TRUMP']} (${declarerIsNS ? 'НИЕ' : 'ВИЕ'})`,
+      belotPointsNS: 0,
+      belotPointsEW: 0,
+      declarationsNS: [],
+      declarationsEW: [],
+      handPointsNS: totalRawNS,
+      handPointsEW: totalRawEW,
+      totalPointsNS: totalRawNS,
+      totalPointsEW: totalRawEW,
+      outcomeText,
+      scoreAddedNS: scoreNS,
+      scoreAddedEW: scoreEW,
+    };
 
     broadcastState();
 
+    // 7 секунди показване на таблото
     setTimeout(() => {
       this.dealer = NEXT_PLAYER[this.dealer];
       this.startNewRound();
       broadcastState();
-    }, 4500);
+    }, 7000);
   }
 
   public getPayloadFor(targetPlayer: PlayerPosition = 'SOUTH') {
@@ -346,6 +420,7 @@ class BelotGameEngine {
       trickWinner: this.trickWinner,
       scores: this.scores,
       lastAction: this.lastAction,
+      roundSummary: this.roundSummary,
     };
   }
 }
@@ -374,15 +449,24 @@ function handleBotNextAction() {
     setTimeout(() => {
       game.cutDeck(16);
       broadcastState();
-    }, 700);
+    }, 1200);
     return;
   }
 
   if (game.phase === 'BIDDING' && game.currentPlayer !== 'SOUTH') {
     setTimeout(() => {
-      game.makeBid(game.currentPlayer, 'PASS');
+      // Ботът оценява ръката си вместо сляп пас
+      const hand = game.hands[game.currentPlayer];
+      const hasJacks = hand.filter(c => c.rank === 'J').length;
+      const hasAces = hand.filter(c => c.rank === 'A').length;
+
+      if (!game.auction.currentContract && (hasJacks >= 2 || hasAces >= 2)) {
+        game.makeBid(game.currentPlayer, 'CONTRACT', 'ALL_TRUMP');
+      } else {
+        game.makeBid(game.currentPlayer, 'PASS');
+      }
       broadcastState();
-    }, 650);
+    }, 1300); // 1.3s пауза за естествен пас
     return;
   }
 
@@ -398,7 +482,7 @@ function handleBotNextAction() {
 
       game.playCard(botPos, chosenCard);
       broadcastState();
-    }, 750);
+    }, 1400); // 1.4s между ходовете на ботовете
   }
 }
 

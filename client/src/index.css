@@ -5,86 +5,86 @@ html, body, #root {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: #1e4d6e;
+  background-color: #17384e;
   color: #f8fafc;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   user-select: none;
 }
 
-/* 1. Razdavane ot dqsnoto teste kam vsqka poziciq */
-@keyframes dealToSouth {
-  0% { transform: translate(320px, -180px) scale(0.35) rotate(25deg); opacity: 0; }
+/* 1. Полет на картите при раздаване от дясното тесте */
+@keyframes flyFromDeckToSouth {
+  0% { transform: translate(320px, -240px) scale(0.3) rotate(25deg); opacity: 0; }
   100% { opacity: 1; }
 }
 
-@keyframes dealToNorth {
-  0% { transform: translate(320px, 120px) scale(0.35) rotate(25deg); opacity: 0; }
+@keyframes flyFromDeckToNorth {
+  0% { transform: translate(320px, 160px) scale(0.3) rotate(25deg); opacity: 0; }
   100% { opacity: 1; }
 }
 
-@keyframes dealToWest {
-  0% { transform: translate(450px, 0) scale(0.35) rotate(25deg); opacity: 0; }
+@keyframes flyFromDeckToWest {
+  0% { transform: translate(460px, 0) scale(0.3) rotate(25deg); opacity: 0; }
   100% { opacity: 1; }
 }
 
-@keyframes dealToEast {
+@keyframes flyFromDeckToEast {
   0% { transform: scale(0.4); opacity: 0; }
   100% { transform: scale(1); opacity: 1; }
 }
 
-.anim-deal-south { animation: dealToSouth 0.38s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
-.anim-deal-north { animation: dealToNorth 0.38s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
-.anim-deal-west { animation: dealToWest 0.38s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
-.anim-deal-east { animation: dealToEast 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
+.anim-deal-south { animation: flyFromDeckToSouth 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
+.anim-deal-north { animation: flyFromDeckToNorth 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
+.anim-deal-west { animation: flyFromDeckToWest 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
+.anim-deal-east { animation: flyFromDeckToEast 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
 
-/* 2. Hvarlyane kam centura s lek naklon kato v videoto */
+/* 2. Хвърляне на карта на масата с естествен наклон */
 @keyframes throwSouth {
-  0% { transform: translate(0, 150px) scale(0.85); opacity: 0.5; }
-  100% { transform: translate(0, 16px) rotate(2deg) scale(1); opacity: 1; }
+  0% { transform: translate(0, 180px) scale(0.8); opacity: 0; }
+  100% { transform: translate(0, 22px) rotate(2deg) scale(1); opacity: 1; }
 }
 
 @keyframes throwNorth {
-  0% { transform: translate(0, -150px) scale(0.85); opacity: 0.5; }
-  100% { transform: translate(0, -16px) rotate(-3deg) scale(1); opacity: 1; }
+  0% { transform: translate(0, -180px) scale(0.8); opacity: 0; }
+  100% { transform: translate(0, -22px) rotate(-3deg) scale(1); opacity: 1; }
 }
 
 @keyframes throwWest {
-  0% { transform: translate(-180px, 0) scale(0.85); opacity: 0.5; }
-  100% { transform: translate(-20px, 0) rotate(-6deg) scale(1); opacity: 1; }
+  0% { transform: translate(-220px, 0) scale(0.8); opacity: 0; }
+  100% { transform: translate(-28px, 0) rotate(-7deg) scale(1); opacity: 1; }
 }
 
 @keyframes throwEast {
-  0% { transform: translate(180px, 0) scale(0.85); opacity: 0.5; }
-  100% { transform: translate(20px, 0) rotate(5deg) scale(1); opacity: 1; }
+  0% { transform: translate(220px, 0) scale(0.8); opacity: 0; }
+  100% { transform: translate(28px, 0) rotate(6deg) scale(1); opacity: 1; }
 }
 
-.anim-throw-south { animation: throwSouth 0.28s cubic-bezier(0.15, 0.85, 0.35, 1.1) forwards; }
-.anim-throw-north { animation: throwNorth 0.28s cubic-bezier(0.15, 0.85, 0.35, 1.1) forwards; }
-.anim-throw-west { animation: throwWest 0.28s cubic-bezier(0.15, 0.85, 0.35, 1.1) forwards; }
-.anim-throw-east { animation: throwEast 0.28s cubic-bezier(0.15, 0.85, 0.35, 1.1) forwards; }
+.anim-throw-south { animation: throwSouth 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.15) forwards; }
+.anim-throw-north { animation: throwNorth 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.15) forwards; }
+.anim-throw-west { animation: throwWest 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.15) forwards; }
+.anim-throw-east { animation: throwEast 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.15) forwards; }
 
-/* 3. Pribirane na celia kup karti kam specheliliq */
+/* 3. Прибиране на взятката към победителя */
 @keyframes collectToSouth {
   0% { transform: scale(1); opacity: 1; }
-  100% { transform: translate(0, 250px) scale(0.2) rotate(8deg); opacity: 0; }
+  100% { transform: translate(0, 320px) scale(0.2) rotate(10deg); opacity: 0; }
 }
 
 @keyframes collectToNorth {
   0% { transform: scale(1); opacity: 1; }
-  100% { transform: translate(0, -250px) scale(0.2) rotate(-8deg); opacity: 0; }
+  100% { transform: translate(0, -320px) scale(0.2) rotate(-10deg); opacity: 0; }
 }
 
 @keyframes collectToWest {
   0% { transform: scale(1); opacity: 1; }
-  100% { transform: translate(-340px, 0) scale(0.2) rotate(-12deg); opacity: 0; }
+  100% { transform: translate(-420px, 0) scale(0.2) rotate(-15deg); opacity: 0; }
 }
 
 @keyframes collectToEast {
   0% { transform: scale(1); opacity: 1; }
-  100% { transform: translate(340px, 0) scale(0.2) rotate(12deg); opacity: 0; }
+  100% { transform: translate(420px, 0) scale(0.2) rotate(15deg); opacity: 0; }
 }
 
-.anim-collect-south { animation: collectToSouth 0.42s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-.anim-collect-north { animation: collectToNorth 0.42s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-.anim-collect-west { animation: collectToWest 0.42s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-.anim-collect-east { animation: collectToEast 0.42s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-south { animation: collectToSouth 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-north { animation: collectToNorth 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-west { animation: collectToWest 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-east { animation: collectToEast 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
