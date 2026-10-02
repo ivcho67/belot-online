@@ -51,7 +51,8 @@ export function App() {
   const [hoveredCutIndex, setHoveredCutIndex] = useState<number | null>(null);
   const [cutStep, setCutStep] = useState<number>(0);
   const [speechBubbles, setSpeechBubbles] = useState<Record<string, string>>({});
-  const [countdown, setCountdown] = useState(6);
+  const [countdown, setCountdown] = useState(8);
+  const [persistedSummary, setPersistedSummary] = useState<any>(null);
   const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -69,6 +70,10 @@ export function App() {
       const data = JSON.parse(event.data);
       if (data.type === 'GAME_STATE_UPDATE') {
         setGameState(data.payload);
+
+        if (data.payload.roundSummary) {
+          setPersistedSummary(data.payload.roundSummary);
+        }
 
         if (data.payload.lastAction) {
           const act = data.payload.lastAction;
@@ -89,11 +94,15 @@ export function App() {
 
   useEffect(() => {
     if (gameState?.phase === 'ROUND_OVER') {
-      setCountdown(6);
+      setCountdown(8);
       const interval = setInterval(() => {
         setCountdown(c => (c > 1 ? c - 1 : 1));
       }, 1000);
       return () => clearInterval(interval);
+    } else {
+      if (gameState?.phase === 'CUTTING') {
+        setPersistedSummary(null);
+      }
     }
   }, [gameState?.phase]);
 
@@ -156,7 +165,7 @@ export function App() {
       }
     }
 
-    const partnerWinning = (winner === 'NORTH');
+    const isPartnerWinning = (winner === 'NORTH');
 
     if (contract === 'NO_TRUMP') {
       return hasLeadSuit ? card.suit === leadSuit : true;
@@ -184,7 +193,7 @@ export function App() {
     }
 
     if (hasLeadSuit) return card.suit === leadSuit;
-    if (partnerWinning) return true;
+    if (isPartnerWinning) return true;
 
     const trumps = hand.filter(c => c.suit === trumpSuit);
     if (trumps.length > 0) {
@@ -258,12 +267,12 @@ export function App() {
     }
   };
 
-  const summary = gameState.roundSummary;
+  const summary = gameState.roundSummary || persistedSummary;
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#132f42] select-none overflow-hidden font-sans relative">
       
-      {/* Tablo za tochki vlyavo gore */}
+      {/* Tablo za tochki gore vlyavo */}
       <div className="absolute top-5 left-6 z-30 flex items-center gap-3">
         <div className="bg-[#0f2434]/95 border-2 border-[#1f4e70] rounded-2xl px-5 py-2.5 shadow-2xl flex items-center gap-6">
           <div className="flex flex-col items-center">
@@ -336,7 +345,7 @@ export function App() {
               )}
             </div>
 
-            {/* Centar: Cepene i vzyatka */}
+            {/* Centar */}
             <div className="relative w-[560px] h-[330px] flex items-center justify-center">
 
               {gameState.phase === 'CUTTING' && (
@@ -387,7 +396,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Vzyatka: GOLEMI KARTI S KRASIVI TSVETOVE I MASIVNI ZNATSI */}
+              {/* Vzyatka v centara */}
               {gameState.phase !== 'CUTTING' && (
                 <div className="w-full h-full relative flex items-center justify-center">
                   {gameState.currentTrickCards.map((tc: any, idx: number) => {
@@ -437,7 +446,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Tablo za naddavane */}
+              {/* Naddavane */}
               {isMyTurnToBid && (
                 <div className="absolute z-40 bg-white rounded-3xl shadow-2xl border-2 border-slate-300 p-4 flex flex-col items-center gap-3 animate-in zoom-in-90 duration-200">
                   <div className="grid grid-cols-2 gap-2.5 w-72">
@@ -490,7 +499,7 @@ export function App() {
 
           </div>
 
-          {/* Yug (Igrachut) - SHIROKO, KRASIVO VETRILO S GOLEMI KARTI */}
+          {/* Yug (Igrachut) */}
           <div className="flex flex-col items-center relative">
             {speechBubbles['SOUTH'] && (
               <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
@@ -549,8 +558,8 @@ export function App() {
 
         </div>
 
-        {/* Tablo za kraya na runda kato v originala */}
-        {gameState.phase === 'ROUND_OVER' && summary && (
+        {/* TABLO S REZULTATITE V KRAQ NA RUNDA (ZADURZHA SE 8 SEKUNDI) */}
+        {(gameState.phase === 'ROUND_OVER' || persistedSummary) && summary && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-300">
             <div className="w-[540px] bg-[#0c1824] border-2 border-amber-500 rounded-3xl shadow-2xl overflow-hidden flex flex-col text-slate-100">
               

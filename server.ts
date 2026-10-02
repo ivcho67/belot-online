@@ -29,7 +29,7 @@ export interface RoundSummary {
 }
 
 const SUITS: Suit[] = ['CLUBS', 'DIAMONDS', 'HEARTS', 'SPADES'];
-const RANKS: Rank[] = ['7', '8', '9', '10', 'J' , 'Q', 'K', 'A'];
+const RANKS: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
 const NEXT_PLAYER: Record<PlayerPosition, PlayerPosition> = {
   SOUTH: 'EAST',
@@ -315,7 +315,7 @@ class BelotGameEngine {
 
     this.trickWinner = winner;
 
-    // ТОЧНО 1.8 СЕКУНДИ ДЕЛЕЙ ДОКАТО И 4-ТЕ КАРТИ СА НА МАСАТА (за да видиш ясно последната карта)
+    // 2200ms fiksiran delay, taka che chetvartata karta da sedi napulno spokoino na masata predi chistene
     setTimeout(() => {
       this.isResolvingTrick = false;
       this.currentTrickCards = [];
@@ -327,7 +327,7 @@ class BelotGameEngine {
         this.currentTrickNumber++;
         broadcastState();
       }
-    }, 1800);
+    }, 2200);
   }
 
   private finalizeRound() {
@@ -390,11 +390,12 @@ class BelotGameEngine {
 
     broadcastState();
 
+    // 8 sekundi pokazvane na tablotot za krai na runda, predi novoto razdavane!
     setTimeout(() => {
       this.dealer = NEXT_PLAYER[this.dealer];
       this.startNewRound();
       broadcastState();
-    }, 6000);
+    }, 8000);
   }
 
   public getPayloadFor(targetPlayer: PlayerPosition = 'SOUTH') {
@@ -479,7 +480,7 @@ function handleBotNextAction() {
 
       game.playCard(botPos, chosenCard);
       broadcastState();
-    }, 1200); // Плавен ход на бота
+    }, 1300);
   }
 }
 
