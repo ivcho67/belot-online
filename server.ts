@@ -29,7 +29,7 @@ export interface RoundSummary {
 }
 
 const SUITS: Suit[] = ['CLUBS', 'DIAMONDS', 'HEARTS', 'SPADES'];
-const RANKS: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+const RANKS: Rank[] = ['7', '8', '9', '10', 'J' , 'Q', 'K', 'A'];
 
 const NEXT_PLAYER: Record<PlayerPosition, PlayerPosition> = {
   SOUTH: 'EAST',
@@ -315,7 +315,7 @@ class BelotGameEngine {
 
     this.trickWinner = winner;
 
-    // 3200ms DELEY: 4-TATA KARTA OSTAWA NA MASATA NAPULNO VIDIMA PREDI SABIRANE
+    // ТОЧНО 1.8 СЕКУНДИ ДЕЛЕЙ ДОКАТО И 4-ТЕ КАРТИ СА НА МАСАТА (за да видиш ясно последната карта)
     setTimeout(() => {
       this.isResolvingTrick = false;
       this.currentTrickCards = [];
@@ -327,7 +327,7 @@ class BelotGameEngine {
         this.currentTrickNumber++;
         broadcastState();
       }
-    }, 3200);
+    }, 1800);
   }
 
   private finalizeRound() {
@@ -394,7 +394,7 @@ class BelotGameEngine {
       this.dealer = NEXT_PLAYER[this.dealer];
       this.startNewRound();
       broadcastState();
-    }, 7000);
+    }, 6000);
   }
 
   public getPayloadFor(targetPlayer: PlayerPosition = 'SOUTH') {
@@ -447,7 +447,7 @@ function handleBotNextAction() {
     setTimeout(() => {
       game.cutDeck(16);
       broadcastState();
-    }, 1200);
+    }, 900);
     return;
   }
 
@@ -463,7 +463,7 @@ function handleBotNextAction() {
         game.makeBid(game.currentPlayer, 'PASS');
       }
       broadcastState();
-    }, 1400);
+    }, 1100);
     return;
   }
 
@@ -479,7 +479,7 @@ function handleBotNextAction() {
 
       game.playCard(botPos, chosenCard);
       broadcastState();
-    }, 1600); // 1.6s mezdu hodovete na botovete
+    }, 1200); // Плавен ход на бота
   }
 }
 

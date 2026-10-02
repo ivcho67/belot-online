@@ -11,7 +11,7 @@ html, body, #root {
   user-select: none;
 }
 
-/* 1. Полет на картите при раздаване от дясното тесте */
+/* Раздаване от дясното тесте */
 @keyframes flyFromDeckToSouth {
   0% { transform: translate(320px, -240px) scale(0.3) rotate(25deg); opacity: 0; }
   100% { opacity: 1; }
@@ -32,59 +32,59 @@ html, body, #root {
   100% { transform: scale(1); opacity: 1; }
 }
 
-.anim-deal-south { animation: flyFromDeckToSouth 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
-.anim-deal-north { animation: flyFromDeckToNorth 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
-.anim-deal-west { animation: flyFromDeckToWest 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
-.anim-deal-east { animation: flyFromDeckToEast 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
+.anim-deal-south { animation: flyFromDeckToSouth 0.45s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
+.anim-deal-north { animation: flyFromDeckToNorth 0.45s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
+.anim-deal-west { animation: flyFromDeckToWest 0.45s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
+.anim-deal-east { animation: flyFromDeckToEast 0.35s cubic-bezier(0.2, 0.9, 0.3, 1) backwards; }
 
-/* 2. Хвърляне на карта на масата с естествен наклон */
+/* Хвърляне на карта към центъра */
 @keyframes throwSouth {
-  0% { transform: translate(0, 180px) scale(0.8); opacity: 0; }
+  0% { transform: translate(0, 180px) scale(0.85); opacity: 0; }
   100% { transform: translate(0, 22px) rotate(2deg) scale(1); opacity: 1; }
 }
 
 @keyframes throwNorth {
-  0% { transform: translate(0, -180px) scale(0.8); opacity: 0; }
+  0% { transform: translate(0, -180px) scale(0.85); opacity: 0; }
   100% { transform: translate(0, -22px) rotate(-3deg) scale(1); opacity: 1; }
 }
 
 @keyframes throwWest {
-  0% { transform: translate(-220px, 0) scale(0.8); opacity: 0; }
+  0% { transform: translate(-220px, 0) scale(0.85); opacity: 0; }
   100% { transform: translate(-28px, 0) rotate(-7deg) scale(1); opacity: 1; }
 }
 
 @keyframes throwEast {
-  0% { transform: translate(220px, 0) scale(0.8); opacity: 0; }
+  0% { transform: translate(220px, 0) scale(0.85); opacity: 0; }
   100% { transform: translate(28px, 0) rotate(6deg) scale(1); opacity: 1; }
 }
 
-.anim-throw-south { animation: throwSouth 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.15) forwards; }
-.anim-throw-north { animation: throwNorth 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.15) forwards; }
-.anim-throw-west { animation: throwWest 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.15) forwards; }
-.anim-throw-east { animation: throwEast 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.15) forwards; }
+.anim-throw-south { animation: throwSouth 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.anim-throw-north { animation: throwNorth 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.anim-throw-west { animation: throwWest 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.anim-throw-east { animation: throwEast 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
-/* 3. Прибиране на взятката към победителя */
+/* Прибиране: стои на масата неподвижно до 65% от времето (вижда се 4-тата карта), и чак тогава отлита */
 @keyframes collectToSouth {
-  0% { transform: scale(1); opacity: 1; }
+  0%, 65% { transform: scale(1); opacity: 1; }
   100% { transform: translate(0, 320px) scale(0.2) rotate(10deg); opacity: 0; }
 }
 
 @keyframes collectToNorth {
-  0% { transform: scale(1); opacity: 1; }
+  0%, 65% { transform: scale(1); opacity: 1; }
   100% { transform: translate(0, -320px) scale(0.2) rotate(-10deg); opacity: 0; }
 }
 
 @keyframes collectToWest {
-  0% { transform: scale(1); opacity: 1; }
+  0%, 65% { transform: scale(1); opacity: 1; }
   100% { transform: translate(-420px, 0) scale(0.2) rotate(-15deg); opacity: 0; }
 }
 
 @keyframes collectToEast {
-  0% { transform: scale(1); opacity: 1; }
+  0%, 65% { transform: scale(1); opacity: 1; }
   100% { transform: translate(420px, 0) scale(0.2) rotate(15deg); opacity: 0; }
 }
 
-.anim-collect-south { animation: collectToSouth 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-.anim-collect-north { animation: collectToNorth 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-.anim-collect-west { animation: collectToWest 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-.anim-collect-east { animation: collectToEast 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-south { animation: collectToSouth 1.7s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-north { animation: collectToNorth 1.7s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-west { animation: collectToWest 1.7s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.anim-collect-east { animation: collectToEast 1.7s cubic-bezier(0.4, 0, 0.2, 1) forwards; }

@@ -18,11 +18,11 @@ const SUIT_SYMBOLS: Record<Suit, string> = {
   SPADES: '♠',
 };
 
-const SUIT_COLORS: Record<Suit, string> = {
-  CLUBS: 'text-slate-900',
-  DIAMONDS: 'text-red-600',
-  HEARTS: 'text-red-600',
-  SPADES: 'text-slate-900',
+const SUIT_HEX: Record<Suit, string> = {
+  CLUBS: '#0f172a',
+  DIAMONDS: '#dc2626',
+  HEARTS: '#dc2626',
+  SPADES: '#0f172a',
 };
 
 const CONTRACT_TITLES: Record<string, string> = {
@@ -79,7 +79,7 @@ export function App() {
               delete updated[act.player];
               return updated;
             });
-          }, 2200);
+          }, 2400);
         }
       }
     };
@@ -87,7 +87,6 @@ export function App() {
     return () => ws.close();
   }, []);
 
-  // Таймер за таблото
   useEffect(() => {
     if (gameState?.phase === 'ROUND_OVER') {
       setCountdown(6);
@@ -264,7 +263,7 @@ export function App() {
   return (
     <div className="flex flex-col h-screen w-screen bg-[#132f42] select-none overflow-hidden font-sans relative">
       
-      {/* ТАБЛО ЗА РЕЗУЛТАТ (ГОРЕ ВЛЯВО) */}
+      {/* Tablo za tochki vlyavo gore */}
       <div className="absolute top-5 left-6 z-30 flex items-center gap-3">
         <div className="bg-[#0f2434]/95 border-2 border-[#1f4e70] rounded-2xl px-5 py-2.5 shadow-2xl flex items-center gap-6">
           <div className="flex flex-col items-center">
@@ -280,7 +279,7 @@ export function App() {
 
         {gameState.auction?.currentContract && (
           <div className="bg-[#0f2434]/95 border-2 border-amber-500 rounded-2xl px-4 py-2 flex items-center gap-2 shadow-2xl">
-            <span className="text-2xl text-red-500 font-bold leading-none">
+            <span style={{ color: SUIT_HEX[gameState.auction.currentContract as Suit] || '#f59e0b' }} className="text-2xl font-bold leading-none">
               {SUIT_SYMBOLS[gameState.auction.currentContract as Suit] || '★'}
             </span>
             <span className="text-sm font-black text-amber-300 uppercase tracking-wide">
@@ -290,11 +289,11 @@ export function App() {
         )}
       </div>
 
-      {/* МАСА */}
+      {/* Masata */}
       <main className="flex-1 relative flex items-center justify-center p-4">
-        <div className="relative w-[1040px] h-[680px] bg-[#23587c] rounded-[180px] border-[18px] border-[#163a52] shadow-2xl flex flex-col justify-between p-6 ring-4 ring-[#0d2230]/40">
+        <div className="relative w-[1060px] h-[700px] bg-[#23587c] rounded-[180px] border-[18px] border-[#163a52] shadow-2xl flex flex-col justify-between p-6 ring-4 ring-[#0d2230]/40">
 
-          {/* СЕВЕР (BOT 1) */}
+          {/* Sever (Bot 1) */}
           <div className="flex flex-col items-center relative">
             {speechBubbles['NORTH'] && (
               <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
@@ -314,10 +313,10 @@ export function App() {
             )}
           </div>
 
-          {/* СРЕДНА ЛИНИЯ: ЗАПАД, ЦЕНТЪР, ИЗТОК */}
+          {/* Sredna liniq */}
           <div className="flex justify-between items-center w-full px-6">
             
-            {/* ЗАПАД (BOT 3) */}
+            {/* Zapad (Bot 3) */}
             <div className="flex flex-col items-center relative w-28">
               {speechBubbles['WEST'] && (
                 <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
@@ -337,10 +336,9 @@ export function App() {
               )}
             </div>
 
-            {/* ЦЕНТЪР: ЦЕПЕНЕ, ТЕСТЕ И ВЗЯТКА */}
-            <div className="relative w-[540px] h-[320px] flex items-center justify-center">
+            {/* Centar: Cepene i vzyatka */}
+            <div className="relative w-[560px] h-[330px] flex items-center justify-center">
 
-              {/* ВЕТРИЛО ЗА ЦЕПЕНЕ */}
               {gameState.phase === 'CUTTING' && (
                 <div className="flex flex-col items-center gap-3 w-full animate-in fade-in duration-300">
                   <span className="text-2xl font-black text-white tracking-wider uppercase drop-shadow-md">
@@ -380,16 +378,16 @@ export function App() {
                 </div>
               )}
 
-              {/* ДЯСНО ТЕСТЕ (СТОИ ПОСТОЯННО СЛЕД ЦЕПЕНЕТО) */}
+              {/* Dqsnoto teste za razdavane */}
               {gameState.phase !== 'CUTTING' && (
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 w-18 h-26 bg-[#102d42] rounded-2xl border-2 border-blue-400/60 shadow-2xl flex items-center justify-center pointer-events-none opacity-85 z-10">
-                  <div className="w-14 h-20 border border-blue-300/30 rounded-xl flex items-center justify-center">
-                    <span className="text-2xl text-blue-300/40 font-bold">♠</span>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 w-20 h-28 bg-[#102d42] rounded-2xl border-2 border-blue-400/60 shadow-2xl flex items-center justify-center pointer-events-none opacity-85 z-10">
+                  <div className="w-16 h-22 border border-blue-300/30 rounded-xl flex items-center justify-center">
+                    <span className="text-3xl text-blue-300/40 font-bold">♠</span>
                   </div>
                 </div>
               )}
 
-              {/* ВЗЯТКА НА МАСАТА: ГОЛЕМИ ЯСНИ КАРТИ С ВИДИМИ БОИ И РАНГОВЕ */}
+              {/* Vzyatka: GOLEMI KARTI S KRASIVI TSVETOVE I MASIVNI ZNATSI */}
               {gameState.phase !== 'CUTTING' && (
                 <div className="w-full h-full relative flex items-center justify-center">
                   {gameState.currentTrickCards.map((tc: any, idx: number) => {
@@ -397,20 +395,21 @@ export function App() {
                     let animClass = '';
 
                     if (tc.player === 'NORTH') {
-                      rotClass = 'rotate-[-3deg] -translate-y-6';
+                      rotClass = 'rotate-[-3deg] -translate-y-8';
                       animClass = 'anim-throw-north';
                     } else if (tc.player === 'SOUTH') {
-                      rotClass = 'rotate-[2deg] translate-y-6';
+                      rotClass = 'rotate-[2deg] translate-y-8';
                       animClass = 'anim-throw-south';
                     } else if (tc.player === 'WEST') {
-                      rotClass = 'rotate-[-6deg] -translate-x-8';
+                      rotClass = 'rotate-[-6deg] -translate-x-10';
                       animClass = 'anim-throw-west';
                     } else if (tc.player === 'EAST') {
-                      rotClass = 'rotate-[5deg] translate-x-8';
+                      rotClass = 'rotate-[5deg] translate-x-10';
                       animClass = 'anim-throw-east';
                     }
 
                     const finalAnim = gameState.isResolvingTrick ? getCollectAnimClass() : animClass;
+                    const cardColor = SUIT_HEX[tc.card.suit as Suit];
 
                     return (
                       <div
@@ -418,15 +417,18 @@ export function App() {
                         style={{ zIndex: idx + 10 }}
                         className={`absolute flex flex-col items-center ${rotClass} ${finalAnim}`}
                       >
-                        <div className="w-22 h-32 bg-white rounded-2xl shadow-2xl flex flex-col items-center justify-between p-2.5 border-2 border-slate-300 ring-1 ring-black/10">
-                          <div className="flex justify-between items-center w-full leading-none">
-                            <span className={`text-lg font-black ${SUIT_COLORS[tc.card.suit as Suit]}`}>{tc.card.rank}</span>
-                            <span className={`text-base font-bold ${SUIT_COLORS[tc.card.suit as Suit]}`}>{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
+                        <div
+                          style={{ color: cardColor }}
+                          className="w-24 h-36 bg-white rounded-2xl shadow-2xl flex flex-col items-center justify-between p-2.5 border-2 border-slate-300 ring-2 ring-black/10"
+                        >
+                          <div className="flex justify-between items-center w-full leading-none font-black text-xl">
+                            <span>{tc.card.rank}</span>
+                            <span className="text-lg">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
                           </div>
-                          <span className={`text-5xl leading-none my-auto ${SUIT_COLORS[tc.card.suit as Suit]}`}>{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
-                          <div className="flex justify-between items-center w-full leading-none rotate-180">
-                            <span className={`text-lg font-black ${SUIT_COLORS[tc.card.suit as Suit]}`}>{tc.card.rank}</span>
-                            <span className={`text-base font-bold ${SUIT_COLORS[tc.card.suit as Suit]}`}>{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
+                          <span className="text-6xl leading-none my-auto">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
+                          <div className="flex justify-between items-center w-full leading-none font-black text-xl rotate-180">
+                            <span>{tc.card.rank}</span>
+                            <span className="text-lg">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
                           </div>
                         </div>
                       </div>
@@ -435,9 +437,9 @@ export function App() {
                 </div>
               )}
 
-              {/* ПАНЕЛ ЗА НАДДАВАНЕ */}
+              {/* Tablo za naddavane */}
               {isMyTurnToBid && (
-                <div className="absolute z-40 bg-white rounded-3xl shadow-2xl border-2 border-slate-300 p-3.5 flex flex-col items-center gap-2.5 animate-in zoom-in-90 duration-200">
+                <div className="absolute z-40 bg-white rounded-3xl shadow-2xl border-2 border-slate-300 p-4 flex flex-col items-center gap-3 animate-in zoom-in-90 duration-200">
                   <div className="grid grid-cols-2 gap-2.5 w-72">
                     <button onClick={() => sendBid('CONTRACT', 'SPADES')} className="py-2.5 bg-slate-100 hover:bg-slate-200 rounded-2xl font-black text-sm flex items-center justify-center gap-2 border border-slate-300 text-slate-900 cursor-pointer shadow-sm active:scale-95">
                       <span className="text-2xl leading-none">♠</span> ПИКА
@@ -466,7 +468,7 @@ export function App() {
 
             </div>
 
-            {/* ИЗТОК (BOT 2) */}
+            {/* Iztok (Bot 2) */}
             <div className="flex flex-col items-center relative w-28">
               {speechBubbles['EAST'] && (
                 <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
@@ -488,7 +490,7 @@ export function App() {
 
           </div>
 
-          {/* ЮГ (ТИ) - ГОЛЕМИ, КРАСИВИ КАРТИ В ШИРОКО ВЕТРИЛО */}
+          {/* Yug (Igrachut) - SHIROKO, KRASIVO VETRILO S GOLEMI KARTI */}
           <div className="flex flex-col items-center relative">
             {speechBubbles['SOUTH'] && (
               <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
@@ -497,13 +499,14 @@ export function App() {
             )}
 
             {gameState.phase !== 'CUTTING' && (
-              <div className="flex justify-center items-end h-40 mb-3 relative">
+              <div className="flex justify-center items-end h-44 mb-3 relative w-full">
                 {sortedMyHand.map((c: Card, idx: number) => {
                   const total = sortedMyHand.length;
-                  const rot = (idx - (total - 1) / 2) * 4.2;
-                  const transX = (idx - (total - 1) / 2) * 44;
-                  const transY = Math.abs(idx - (total - 1) / 2) * 3.5;
+                  const rot = (idx - (total - 1) / 2) * 4.5;
+                  const transX = (idx - (total - 1) / 2) * 52;
+                  const transY = Math.abs(idx - (total - 1) / 2) * 4.5;
                   const playable = isCardPlayable(c);
+                  const cardColor = SUIT_HEX[c.suit];
 
                   return (
                     <button
@@ -511,26 +514,27 @@ export function App() {
                       disabled={!isMyTurnToPlay || !playable}
                       onClick={() => playCard(c)}
                       style={{
+                        color: cardColor,
                         transform: `translateX(${transX}px) translateY(${transY}px) rotate(${rot}deg)`,
                         zIndex: idx + 10,
                         animationDelay: `${idx * 110}ms`,
                       }}
-                      className={`absolute w-24 h-36 bg-white rounded-2xl shadow-2xl flex flex-col items-center justify-between p-3 border-2 transition-all duration-200 anim-deal-south ${
+                      className={`absolute w-26 h-38 bg-white rounded-2xl shadow-2xl flex flex-col items-center justify-between p-3 border-2 transition-all duration-200 anim-deal-south ${
                         isMyTurnToPlay
                           ? playable
-                            ? 'border-emerald-500 hover:-translate-y-9 hover:shadow-emerald-400/50 cursor-pointer active:scale-95'
+                            ? 'border-emerald-500 hover:-translate-y-12 hover:shadow-emerald-400/60 cursor-pointer active:scale-95'
                             : 'border-slate-300 opacity-60 cursor-not-allowed brightness-75'
                           : 'border-slate-300'
                       }`}
                     >
-                      <div className="flex justify-between items-center w-full leading-none">
-                        <span className={`text-xl font-black ${SUIT_COLORS[c.suit]}`}>{c.rank}</span>
-                        <span className={`text-lg font-bold ${SUIT_COLORS[c.suit]}`}>{SUIT_SYMBOLS[c.suit]}</span>
+                      <div className="flex justify-between items-center w-full leading-none font-black text-2xl">
+                        <span>{c.rank}</span>
+                        <span className="text-xl">{SUIT_SYMBOLS[c.suit]}</span>
                       </div>
-                      <span className={`text-5xl leading-none my-auto ${SUIT_COLORS[c.suit]}`}>{SUIT_SYMBOLS[c.suit]}</span>
-                      <div className="flex justify-between items-center w-full leading-none rotate-180">
-                        <span className={`text-xl font-black ${SUIT_COLORS[c.suit]}`}>{c.rank}</span>
-                        <span className={`text-lg font-bold ${SUIT_COLORS[c.suit]}`}>{SUIT_SYMBOLS[c.suit]}</span>
+                      <span className="text-6xl leading-none my-auto">{SUIT_SYMBOLS[c.suit]}</span>
+                      <div className="flex justify-between items-center w-full leading-none font-black text-2xl rotate-180">
+                        <span>{c.rank}</span>
+                        <span className="text-xl">{SUIT_SYMBOLS[c.suit]}</span>
                       </div>
                     </button>
                   );
@@ -545,27 +549,23 @@ export function App() {
 
         </div>
 
-        {/* ТАБЛО С РЕЗУЛТАТИТЕ В КРАЯ НА РУНДА (ОТ СКРИЙНШОТА) */}
+        {/* Tablo za kraya na runda kato v originala */}
         {gameState.phase === 'ROUND_OVER' && summary && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-300">
             <div className="w-[540px] bg-[#0c1824] border-2 border-amber-500 rounded-3xl shadow-2xl overflow-hidden flex flex-col text-slate-100">
               
-              {/* Заглавна лента */}
               <div className="flex items-center justify-center gap-2.5 py-4 bg-[#08121b] border-b border-amber-500/40">
                 <span className="text-2xl text-red-500 leading-none">♦</span>
                 <span className="text-xl font-black tracking-wider text-white uppercase">{summary.contractTitle}</span>
               </div>
 
-              {/* Колони НИЕ / ВИЕ */}
               <div className="grid grid-cols-12 px-8 pt-4 pb-2 text-amber-400 font-black text-base tracking-wider">
                 <div className="col-span-6"></div>
                 <div className="col-span-3 text-center">НИЕ</div>
                 <div className="col-span-3 text-center">ВИЕ</div>
               </div>
 
-              {/* Редове с данни */}
               <div className="flex flex-col text-sm font-semibold divide-y divide-amber-500/20 px-8">
-                
                 <div className="grid grid-cols-12 py-3 items-center">
                   <div className="col-span-6 text-slate-300 tracking-wide font-bold">БЕЛОТИ</div>
                   <div className="col-span-3 text-center font-black text-base">{summary.belotPointsNS}</div>
@@ -602,14 +602,12 @@ export function App() {
                 </div>
               </div>
 
-              {/* Оранжев ред: РЕЗУЛТАТ */}
               <div className="grid grid-cols-12 px-8 py-3.5 bg-amber-500 text-slate-950 font-black text-base items-center mt-3 shadow-inner">
                 <div className="col-span-6 tracking-wider text-lg">РЕЗУЛТАТ</div>
                 <div className="col-span-3 text-center text-2xl">{summary.scoreAddedNS}</div>
                 <div className="col-span-3 text-center text-2xl">{summary.scoreAddedEW}</div>
               </div>
 
-              {/* Таймер отброяване */}
               <div className="py-3 bg-[#08121b] text-center text-xs text-slate-400 font-bold tracking-wide border-t border-slate-800">
                 Играта продължава след {countdown} сек.
               </div>
