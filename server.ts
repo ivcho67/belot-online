@@ -151,7 +151,6 @@ class BelotGameEngine {
       this.auction.consecutivePasses++;
       this.lastAction = { player, text: 'ПАС' };
 
-      // Ако всички са пасували 4 пъти, ботът прави анонс по подразбиране, за да се играе рунд!
       if (!this.auction.currentContract && this.auction.consecutivePasses >= 4) {
         this.auction.currentContract = 'ALL_TRUMP';
         this.auction.declarer = player;
@@ -316,7 +315,7 @@ class BelotGameEngine {
 
     this.trickWinner = winner;
 
-    // ТОЧНО 2.5 СЕКУНДИ ДЕЛЕЙ: четвъртата карта остава напълно видима на масата!
+    // 3200ms DELEY: 4-TATA KARTA OSTAWA NA MASATA NAPULNO VIDIMA PREDI SABIRANE
     setTimeout(() => {
       this.isResolvingTrick = false;
       this.currentTrickCards = [];
@@ -328,7 +327,7 @@ class BelotGameEngine {
         this.currentTrickNumber++;
         broadcastState();
       }
-    }, 2500);
+    }, 3200);
   }
 
   private finalizeRound() {
@@ -391,7 +390,6 @@ class BelotGameEngine {
 
     broadcastState();
 
-    // 7 секунди показване на таблото
     setTimeout(() => {
       this.dealer = NEXT_PLAYER[this.dealer];
       this.startNewRound();
@@ -455,7 +453,6 @@ function handleBotNextAction() {
 
   if (game.phase === 'BIDDING' && game.currentPlayer !== 'SOUTH') {
     setTimeout(() => {
-      // Ботът оценява ръката си вместо сляп пас
       const hand = game.hands[game.currentPlayer];
       const hasJacks = hand.filter(c => c.rank === 'J').length;
       const hasAces = hand.filter(c => c.rank === 'A').length;
@@ -466,7 +463,7 @@ function handleBotNextAction() {
         game.makeBid(game.currentPlayer, 'PASS');
       }
       broadcastState();
-    }, 1300); // 1.3s пауза за естествен пас
+    }, 1400);
     return;
   }
 
@@ -482,7 +479,7 @@ function handleBotNextAction() {
 
       game.playCard(botPos, chosenCard);
       broadcastState();
-    }, 1400); // 1.4s между ходовете на ботовете
+    }, 1600); // 1.6s mezdu hodovete na botovete
   }
 }
 
