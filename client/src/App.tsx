@@ -99,10 +99,8 @@ export function App() {
         setCountdown(c => (c > 1 ? c - 1 : 1));
       }, 1000);
       return () => clearInterval(interval);
-    } else {
-      if (gameState?.phase === 'CUTTING') {
-        setPersistedSummary(null);
-      }
+    } else if (gameState?.phase === 'CUTTING') {
+      setPersistedSummary(null);
     }
   }, [gameState?.phase]);
 
@@ -345,7 +343,7 @@ export function App() {
               )}
             </div>
 
-            {/* Centar */}
+            {/* Centar: Dvusloen render na vzyatkata */}
             <div className="relative w-[560px] h-[330px] flex items-center justify-center">
 
               {gameState.phase === 'CUTTING' && (
@@ -396,48 +394,50 @@ export function App() {
                 </div>
               )}
 
-              {/* Vzyatka v centara */}
+              {/* Vzyatka: Dvusloen render, garantirasht lipsa na podskachane ili naglo izchezvane */}
               {gameState.phase !== 'CUTTING' && (
                 <div className="w-full h-full relative flex items-center justify-center">
                   {gameState.currentTrickCards.map((tc: any, idx: number) => {
-                    let rotClass = '';
-                    let animClass = '';
+                    let throwAnim = '';
+                    let slotOffset = '';
 
                     if (tc.player === 'NORTH') {
-                      rotClass = 'rotate-[-3deg] -translate-y-8';
-                      animClass = 'anim-throw-north';
+                      throwAnim = 'anim-throw-north';
+                      slotOffset = 'translate-y-[-24px] rotate-[-2deg]';
                     } else if (tc.player === 'SOUTH') {
-                      rotClass = 'rotate-[2deg] translate-y-8';
-                      animClass = 'anim-throw-south';
+                      throwAnim = 'anim-throw-south';
+                      slotOffset = 'translate-y-[24px] rotate-[2deg]';
                     } else if (tc.player === 'WEST') {
-                      rotClass = 'rotate-[-6deg] -translate-x-10';
-                      animClass = 'anim-throw-west';
+                      throwAnim = 'anim-throw-west';
+                      slotOffset = 'translate-x-[-28px] rotate-[-5deg]';
                     } else if (tc.player === 'EAST') {
-                      rotClass = 'rotate-[5deg] translate-x-10';
-                      animClass = 'anim-throw-east';
+                      throwAnim = 'anim-throw-east';
+                      slotOffset = 'translate-x-[28px] rotate-[5deg]';
                     }
 
-                    const finalAnim = gameState.isResolvingTrick ? getCollectAnimClass() : animClass;
+                    const collectAnim = gameState.isResolvingTrick ? getCollectAnimClass() : '';
                     const cardColor = SUIT_HEX[tc.card.suit as Suit];
 
                     return (
                       <div
-                        key={`${tc.player}-${idx}`}
+                        key={tc.card.id}
                         style={{ zIndex: idx + 10 }}
-                        className={`absolute flex flex-col items-center ${rotClass} ${finalAnim}`}
+                        className={`absolute flex items-center justify-center pointer-events-none ${collectAnim}`}
                       >
-                        <div
-                          style={{ color: cardColor }}
-                          className="w-24 h-36 bg-white rounded-2xl shadow-2xl flex flex-col items-center justify-between p-2.5 border-2 border-slate-300 ring-2 ring-black/10"
-                        >
-                          <div className="flex justify-between items-center w-full leading-none font-black text-xl">
-                            <span>{tc.card.rank}</span>
-                            <span className="text-lg">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
-                          </div>
-                          <span className="text-6xl leading-none my-auto">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
-                          <div className="flex justify-between items-center w-full leading-none font-black text-xl rotate-180">
-                            <span>{tc.card.rank}</span>
-                            <span className="text-lg">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
+                        <div className={`${slotOffset} ${!gameState.isResolvingTrick ? throwAnim : ''}`}>
+                          <div
+                            style={{ color: cardColor }}
+                            className="w-24 h-36 bg-white rounded-2xl shadow-2xl flex flex-col items-center justify-between p-2.5 border-2 border-slate-300 ring-2 ring-black/10"
+                          >
+                            <div className="flex justify-between items-center w-full leading-none font-black text-xl">
+                              <span>{tc.card.rank}</span>
+                              <span className="text-lg">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
+                            </div>
+                            <span className="text-6xl leading-none my-auto">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
+                            <div className="flex justify-between items-center w-full leading-none font-black text-xl rotate-180">
+                              <span>{tc.card.rank}</span>
+                              <span className="text-lg">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -558,7 +558,7 @@ export function App() {
 
         </div>
 
-        {/* TABLO S REZULTATITE V KRAQ NA RUNDA (ZADURZHA SE 8 SEKUNDI) */}
+        {/* Tablo za rezultata sled kraq na runda */}
         {(gameState.phase === 'ROUND_OVER' || persistedSummary) && summary && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-300">
             <div className="w-[540px] bg-[#0c1824] border-2 border-amber-500 rounded-3xl shadow-2xl overflow-hidden flex flex-col text-slate-100">
