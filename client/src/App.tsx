@@ -75,7 +75,16 @@ export function App() {
   const [selectedDeclIds, setSelectedDeclIds] = useState<string[]>([]);
   const [hasPromptedDeclarations, setHasPromptedDeclarations] = useState(false);
 
+  // Следене дали екранът е мобилен
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
   const socketRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     const WS_URL = (import.meta as any).env.VITE_WS_URL || 
@@ -135,7 +144,6 @@ export function App() {
     }
   }, [gameState?.phase]);
 
-  // Проверка за обяви при първа взятка
   useEffect(() => {
     if (!gameState || gameState.phase !== 'PLAYING' || hasPromptedDeclarations) return;
     if (gameState.currentTrickNumber !== 1) return;
@@ -384,75 +392,76 @@ export function App() {
 
   const summary = gameState?.roundSummary;
   const seats = gameState?.seats || {
-    SOUTH: { name: 'Свободно', isBot: true },
-    NORTH: { name: 'Свободно', isBot: true },
-    EAST: { name: 'Свободно', isBot: true },
-    WEST: { name: 'Свободно', isBot: true },
+    SOUTH: { name: 'Bot South', isBot: true },
+    NORTH: { name: 'Bot North', isBot: true },
+    EAST: { name: 'Bot East', isBot: true },
+    WEST: { name: 'Bot West', isBot: true },
   };
+
+  // Размери за мобилен екран спрямо десктоп
+  const cardSpacing = isMobile ? 32 : 52;
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#132f42] select-none overflow-hidden font-sans relative">
       
-      {/* ЛОБИ ПРОЗОРЕЦ ЗА ПРИСЪЕДИНЯВАНЕ (ИМЕ + ИЗБОР НА МЯСТО/ОТБОР) */}
+      {/* Модално лоби за вход */}
       {!hasJoined && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md">
-          <div className="w-[500px] bg-[#102534] border-2 border-amber-500 rounded-3xl p-6 shadow-2xl flex flex-col gap-5 text-white">
-            <h1 className="text-2xl font-black text-center tracking-wider text-amber-400 uppercase">
-              Влез в играта (Belot Multiplayer)
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
+          <div className="w-full max-w-md bg-[#102534] border-2 border-amber-500 rounded-3xl p-5 shadow-2xl flex flex-col gap-4 text-white">
+            <h1 className="text-xl sm:text-2xl font-black text-center tracking-wider text-amber-400 uppercase">
+              Belot Online Mobile
             </h1>
 
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1">
               <label className="text-xs font-bold text-slate-300">Твоето име:</label>
               <input
                 type="text"
                 value={playerName}
                 onChange={e => setPlayerName(e.target.value)}
-                placeholder="Въведи псевдоним (напр. Ивайло)"
-                className="px-4 py-2.5 bg-[#0a1822] border border-slate-700 rounded-xl text-white font-bold outline-none focus:border-amber-400"
+                placeholder="Въведи псевдоним"
+                className="px-3.5 py-2 bg-[#0a1822] border border-slate-700 rounded-xl text-white font-bold outline-none focus:border-amber-400 text-sm"
               />
             </div>
 
-            <div className="flex flex-col gap-3">
-              <span className="text-xs font-black text-slate-400 uppercase tracking-wider">
-                Избери си място на масата:
+            <div className="flex flex-col gap-2.5">
+              <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                Избери отбор и позиция:
               </span>
 
-              <div className="grid grid-cols-2 gap-3">
-                {/* Отбор НИЕ */}
-                <div className="flex flex-col gap-2 p-3 bg-[#0d1e2b] rounded-2xl border border-emerald-500/50">
-                  <span className="text-xs font-black text-emerald-400 uppercase">Отбор „НИЕ“</span>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="flex flex-col gap-2 p-2.5 bg-[#0d1e2b] rounded-xl border border-emerald-500/50">
+                  <span className="text-[11px] font-black text-emerald-400 uppercase">Отбор „НИЕ“</span>
                   <button
                     disabled={!playerName.trim()}
                     onClick={() => joinTable('SOUTH')}
-                    className="py-2.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs cursor-pointer active:scale-95 transition-all"
+                    className="py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-bold text-xs cursor-pointer active:scale-95 transition-all truncate px-1"
                   >
-                    Седни на ЮГ ({seats.SOUTH.name})
+                    ЮГ ({seats.SOUTH?.isBot ? 'Свободно' : seats.SOUTH?.name})
                   </button>
                   <button
                     disabled={!playerName.trim()}
                     onClick={() => joinTable('NORTH')}
-                    className="py-2.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs cursor-pointer active:scale-95 transition-all"
+                    className="py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-bold text-xs cursor-pointer active:scale-95 transition-all truncate px-1"
                   >
-                    Седни на СЕВЕР ({seats.NORTH.name})
+                    СЕВЕР ({seats.NORTH?.isBot ? 'Свободно' : seats.NORTH?.name})
                   </button>
                 </div>
 
-                {/* Отбор ВИЕ */}
-                <div className="flex flex-col gap-2 p-3 bg-[#0d1e2b] rounded-2xl border border-rose-500/50">
-                  <span className="text-xs font-black text-rose-400 uppercase">Отбор „ВИЕ“</span>
+                <div className="flex flex-col gap-2 p-2.5 bg-[#0d1e2b] rounded-xl border border-rose-500/50">
+                  <span className="text-[11px] font-black text-rose-400 uppercase">Отбор „ВИЕ“</span>
                   <button
                     disabled={!playerName.trim()}
                     onClick={() => joinTable('EAST')}
-                    className="py-2.5 bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs cursor-pointer active:scale-95 transition-all"
+                    className="py-2 bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white rounded-lg font-bold text-xs cursor-pointer active:scale-95 transition-all truncate px-1"
                   >
-                    Седни на ИЗТОК ({seats.EAST.name})
+                    ИЗТОК ({seats.EAST?.isBot ? 'Свободно' : seats.EAST?.name})
                   </button>
                   <button
                     disabled={!playerName.trim()}
                     onClick={() => joinTable('WEST')}
-                    className="py-2.5 bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs cursor-pointer active:scale-95 transition-all"
+                    className="py-2 bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white rounded-lg font-bold text-xs cursor-pointer active:scale-95 transition-all truncate px-1"
                   >
-                    Седни на ЗАПАД ({seats.WEST.name})
+                    ЗАПАД ({seats.WEST?.isBot ? 'Свободно' : seats.WEST?.name})
                   </button>
                 </div>
               </div>
@@ -461,99 +470,96 @@ export function App() {
         </div>
       )}
 
-      {/* Табло за точки горе вляво */}
-      <div className="absolute top-5 left-6 z-30 flex items-center gap-3">
-        <div className="bg-[#0f2434]/95 border-2 border-[#1f4e70] rounded-2xl px-5 py-2.5 shadow-2xl flex items-center gap-6">
+      {/* Резултати горе вляво */}
+      <div className="absolute top-2 left-2 sm:top-4 sm:left-6 z-30 flex items-center gap-2 scale-90 sm:scale-100 origin-top-left">
+        <div className="bg-[#0f2434]/95 border border-[#1f4e70] rounded-xl px-3 py-1.5 shadow-xl flex items-center gap-4">
           <div className="flex flex-col items-center">
-            <span className="text-xs font-black text-slate-300 tracking-wider">НИЕ</span>
-            <span className="text-2xl font-black text-amber-400">{gameState?.scores?.NORTH_SOUTH || 0}</span>
+            <span className="text-[10px] font-black text-slate-300">НИЕ</span>
+            <span className="text-lg sm:text-2xl font-black text-amber-400">{gameState?.scores?.NORTH_SOUTH || 0}</span>
           </div>
-          <div className="w-[1.5px] h-9 bg-slate-600/50"></div>
+          <div className="w-[1px] h-6 bg-slate-600/50"></div>
           <div className="flex flex-col items-center">
-            <span className="text-xs font-black text-slate-300 tracking-wider">ВИЕ</span>
-            <span className="text-2xl font-black text-slate-100">{gameState?.scores?.EAST_WEST || 0}</span>
+            <span className="text-[10px] font-black text-slate-300">ВИЕ</span>
+            <span className="text-lg sm:text-2xl font-black text-slate-100">{gameState?.scores?.EAST_WEST || 0}</span>
           </div>
         </div>
 
         {gameState?.auction?.currentContract && (
-          <div className="bg-[#0f2434]/95 border-2 border-amber-500 rounded-2xl px-4 py-2 flex items-center gap-2 shadow-2xl">
-            <span style={{ color: SUIT_HEX[gameState.auction.currentContract as Suit] || '#f59e0b' }} className="text-2xl font-bold leading-none">
+          <div className="bg-[#0f2434]/95 border border-amber-500 rounded-xl px-2.5 py-1 flex items-center gap-1.5 shadow-xl">
+            <span style={{ color: SUIT_HEX[gameState.auction.currentContract as Suit] || '#f59e0b' }} className="text-lg font-bold">
               {SUIT_SYMBOLS[gameState.auction.currentContract as Suit] || '★'}
             </span>
-            <span className="text-sm font-black text-amber-300 uppercase tracking-wide">
+            <span className="text-xs font-black text-amber-300 uppercase">
               {CONTRACT_TITLES[gameState.auction.currentContract]}
             </span>
           </div>
         )}
       </div>
 
-      {/* Игрална маса */}
-      <main className="flex-1 relative flex items-center justify-center p-4">
-        <div className="relative w-[1060px] h-[700px] bg-[#23587c] rounded-[180px] border-[18px] border-[#163a52] shadow-2xl flex flex-col justify-between p-6 ring-4 ring-[#0d2230]/40">
+      {/* Адаптивна маса */}
+      <main className="flex-1 relative flex items-center justify-center p-1 sm:p-4">
+        <div className="relative w-full max-w-[1040px] h-[92vh] max-h-[700px] bg-[#23587c] rounded-[48px] sm:rounded-[180px] border-[8px] sm:border-[18px] border-[#163a52] shadow-2xl flex flex-col justify-between p-2 sm:p-6 ring-2 sm:ring-4 ring-[#0d2230]/40">
 
           {/* Север */}
-          <div className="flex flex-col items-center relative">
+          <div className="flex flex-col items-center relative mt-1">
             {speechBubbles['NORTH'] && (
-              <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
+              <div className="absolute -top-8 px-3 py-1 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
                 {speechBubbles['NORTH']}
               </div>
             )}
-            <div className={`w-18 h-18 rounded-2xl border-2 flex flex-col items-center justify-center shadow-xl transition-all ${gameState?.currentPlayer === 'NORTH' ? 'border-amber-400 bg-amber-400/20 scale-105 ring-2 ring-amber-400' : 'border-[#143952] bg-[#0f283a]'}`}>
-              <div className="w-11 h-11 bg-amber-600 rounded-full flex items-center justify-center text-xl shadow-inner">
-                {seats.NORTH.isBot ? '🤖' : '👤'}
-              </div>
-              <span className="text-[10px] font-bold text-slate-200 mt-0.5 truncate max-w-[65px]">
-                {seats.NORTH.name}
+            <div className={`w-12 h-12 sm:w-16 sm:h-16 rounded-xl border flex flex-col items-center justify-center shadow-lg transition-all ${gameState?.currentPlayer === 'NORTH' ? 'border-amber-400 bg-amber-400/20 scale-105' : 'border-[#143952] bg-[#0f283a]'}`}>
+              <span className="text-base sm:text-xl">{seats.NORTH?.isBot ? '🤖' : '👤'}</span>
+              <span className="text-[9px] font-bold text-slate-200 truncate max-w-[45px] sm:max-w-[60px]">
+                {seats.NORTH?.name}
               </span>
             </div>
             {gameState?.phase !== 'CUTTING' && (
-              <div className="flex gap-1.5 mt-2">
+              <div className="flex gap-1 mt-1">
                 {Array.from({ length: gameState?.handsOverview?.NORTH?.cardCount || 0 }).map((_, i) => (
-                  <div key={i} style={{ animationDelay: `${i * 90}ms` }} className="w-8 h-12 bg-[#102d42] rounded-md border border-blue-400/60 shadow-md anim-deal-north"></div>
+                  <div key={i} className="w-5 h-8 sm:w-8 sm:h-12 bg-[#102d42] rounded border border-blue-400/50 shadow anim-deal-north"></div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Средна линия */}
-          <div className="flex justify-between items-center w-full px-6">
+          {/* Среден ред: Запад, Център, Изток */}
+          <div className="flex justify-between items-center w-full px-1 sm:px-4">
             
             {/* Запад */}
-            <div className="flex flex-col items-center relative w-28">
+            <div className="flex flex-col items-center relative w-16 sm:w-24">
               {speechBubbles['WEST'] && (
-                <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
+                <div className="absolute -top-8 px-2 py-0.5 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
                   {speechBubbles['WEST']}
                 </div>
               )}
-              <div className={`w-18 h-18 rounded-2xl border-2 flex flex-col items-center justify-center shadow-xl transition-all ${gameState?.currentPlayer === 'WEST' ? 'border-amber-400 bg-amber-400/20 scale-105 ring-2 ring-amber-400' : 'border-[#143952] bg-[#0f283a]'}`}>
-                <div className="w-11 h-11 bg-purple-600 rounded-full flex items-center justify-center text-xl shadow-inner">
-                  {seats.WEST.isBot ? '👾' : '👤'}
-                </div>
-                <span className="text-[10px] font-bold text-slate-200 mt-0.5 truncate max-w-[65px]">
-                  {seats.WEST.name}
+              <div className={`w-12 h-12 sm:w-16 sm:h-16 rounded-xl border flex flex-col items-center justify-center shadow-lg transition-all ${gameState?.currentPlayer === 'WEST' ? 'border-amber-400 bg-amber-400/20 scale-105' : 'border-[#143952] bg-[#0f283a]'}`}>
+                <span className="text-base sm:text-xl">{seats.WEST?.isBot ? '👾' : '👤'}</span>
+                <span className="text-[9px] font-bold text-slate-200 truncate max-w-[45px] sm:max-w-[60px]">
+                  {seats.WEST?.name}
                 </span>
               </div>
               {gameState?.phase !== 'CUTTING' && (
-                <div className="flex flex-col gap-1 mt-2">
+                <div className="flex flex-col gap-1 mt-1">
                   {Array.from({ length: gameState?.handsOverview?.WEST?.cardCount || 0 }).map((_, i) => (
-                    <div key={i} style={{ animationDelay: `${i * 90}ms` }} className="w-12 h-7 bg-[#102d42] rounded-md border border-blue-400/60 shadow-md anim-deal-west"></div>
+                    <div key={i} className="w-8 h-4 sm:w-12 sm:h-7 bg-[#102d42] rounded border border-blue-400/50 shadow anim-deal-west"></div>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Център: Взятка */}
-            <div className="relative w-[560px] h-[330px] flex items-center justify-center">
+            {/* Център на масата */}
+            <div className="relative flex-1 h-[220px] sm:h-[300px] flex items-center justify-center">
 
+              {/* Цепене */}
               {gameState?.phase === 'CUTTING' && (
-                <div className="flex flex-col items-center gap-3 w-full animate-in fade-in duration-300">
-                  <span className="text-2xl font-black text-white tracking-wider uppercase drop-shadow-md">
-                    {isMyTurnToCut ? 'ТИ ЦЕПИШ' : `Цепи се от ${seats[gameState?.cutter as PlayerPosition]?.name}`}
+                <div className="flex flex-col items-center gap-2 w-full">
+                  <span className="text-sm sm:text-xl font-black text-white uppercase">
+                    {isMyTurnToCut ? 'ТИ ЦЕПИШ' : `Цепи ${seats[gameState?.cutter as PlayerPosition]?.name}`}
                   </span>
 
-                  <div className="relative w-[480px] h-[140px] flex items-center justify-center">
+                  <div className="relative w-full max-w-[320px] sm:max-w-[440px] h-[90px] sm:h-[130px] flex items-center justify-center overflow-hidden">
                     {Array.from({ length: 32 }).map((_, idx) => {
-                      const offset = (idx - 15.5) * 12;
+                      const offset = (idx - 15.5) * (isMobile ? 7 : 11);
                       const isHovered = hoveredCutIndex === idx;
                       const isSplit = cutStep === 1 && idx > 15;
 
@@ -565,15 +571,13 @@ export function App() {
                           onMouseLeave={() => setHoveredCutIndex(null)}
                           onClick={() => handleCutCard(idx)}
                           style={{
-                            transform: `translateX(${offset + (isSplit ? 50 : 0)}px) ${isHovered ? 'translateY(-30px) scale(1.2)' : ''}`,
+                            transform: `translateX(${offset + (isSplit ? 30 : 0)}px) ${isHovered ? 'translateY(-15px) scale(1.15)' : ''}`,
                           }}
-                          className={`absolute w-14 h-22 bg-[#122e44] rounded-xl border-2 border-blue-300 shadow-2xl transition-all duration-200 ${
-                            isMyTurnToCut ? 'hover:border-amber-400 cursor-pointer' : 'cursor-not-allowed opacity-90'
+                          className={`absolute w-10 h-16 sm:w-14 sm:h-22 bg-[#122e44] rounded-lg border border-blue-300 shadow-xl transition-all ${
+                            isMyTurnToCut ? 'hover:border-amber-400 cursor-pointer' : 'opacity-90'
                           }`}
                         >
-                          <div className="w-full h-full border border-blue-200/20 rounded-lg flex items-center justify-center">
-                            <span className="text-sm text-blue-200/40">♠</span>
-                          </div>
+                          <span className="text-[10px] text-blue-200/40">♠</span>
                         </button>
                       );
                     })}
@@ -583,10 +587,8 @@ export function App() {
 
               {/* Дясно тесте */}
               {gameState?.phase !== 'CUTTING' && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 w-20 h-28 bg-[#102d42] rounded-2xl border-2 border-blue-400/60 shadow-2xl flex items-center justify-center pointer-events-none opacity-85 z-10">
-                  <div className="w-16 h-22 border border-blue-300/30 rounded-xl flex items-center justify-center">
-                    <span className="text-3xl text-blue-300/40 font-bold">♠</span>
-                  </div>
+                <div className="absolute right-0 sm:right-2 top-1/2 -translate-y-1/2 w-10 h-16 sm:w-16 sm:h-24 bg-[#102d42] rounded-xl border border-blue-400/50 shadow flex items-center justify-center pointer-events-none opacity-80 z-10">
+                  <span className="text-sm sm:text-2xl text-blue-300/40 font-bold">♠</span>
                 </div>
               )}
 
@@ -599,16 +601,16 @@ export function App() {
 
                     if (tc.player === 'NORTH') {
                       throwAnim = 'anim-throw-north';
-                      slotOffset = 'translate-y-[-24px] rotate-[-2deg]';
+                      slotOffset = isMobile ? 'translate-y-[-16px] rotate-[-2deg]' : 'translate-y-[-24px] rotate-[-2deg]';
                     } else if (tc.player === 'SOUTH') {
                       throwAnim = 'anim-throw-south';
-                      slotOffset = 'translate-y-[24px] rotate-[2deg]';
+                      slotOffset = isMobile ? 'translate-y-[16px] rotate-[2deg]' : 'translate-y-[24px] rotate-[2deg]';
                     } else if (tc.player === 'WEST') {
                       throwAnim = 'anim-throw-west';
-                      slotOffset = 'translate-x-[-28px] rotate-[-5deg]';
+                      slotOffset = isMobile ? 'translate-x-[-18px] rotate-[-5deg]' : 'translate-x-[-28px] rotate-[-5deg]';
                     } else if (tc.player === 'EAST') {
                       throwAnim = 'anim-throw-east';
-                      slotOffset = 'translate-x-[28px] rotate-[5deg]';
+                      slotOffset = isMobile ? 'translate-x-[18px] rotate-[5deg]' : 'translate-x-[28px] rotate-[5deg]';
                     }
 
                     const collectAnim = getCollectAnimClass();
@@ -623,16 +625,16 @@ export function App() {
                         <div className={`${slotOffset} ${!isCollectingVisual ? throwAnim : ''}`}>
                           <div
                             style={{ color: cardColor }}
-                            className="w-24 h-36 bg-white rounded-2xl shadow-2xl flex flex-col items-center justify-between p-2.5 border-2 border-slate-300 ring-2 ring-black/10"
+                            className="w-16 h-24 sm:w-24 sm:h-36 bg-white rounded-xl sm:rounded-2xl shadow-xl flex flex-col items-center justify-between p-1.5 sm:p-2.5 border border-slate-300"
                           >
-                            <div className="flex justify-between items-center w-full leading-none font-black text-xl">
+                            <div className="flex justify-between items-center w-full leading-none font-black text-sm sm:text-xl">
                               <span>{tc.card.rank}</span>
-                              <span className="text-lg">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
+                              <span className="text-xs sm:text-lg">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
                             </div>
-                            <span className="text-6xl leading-none my-auto">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
-                            <div className="flex justify-between items-center w-full leading-none font-black text-xl rotate-180">
+                            <span className="text-3xl sm:text-6xl leading-none my-auto">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
+                            <div className="flex justify-between items-center w-full leading-none font-black text-sm sm:text-xl rotate-180">
                               <span>{tc.card.rank}</span>
-                              <span className="text-lg">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
+                              <span className="text-xs sm:text-lg">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
                             </div>
                           </div>
                         </div>
@@ -642,30 +644,30 @@ export function App() {
                 </div>
               )}
 
-              {/* Панел за наддаване */}
+              {/* Панел за анонсиране */}
               {isMyTurnToBid && (
-                <div className="absolute z-40 bg-white rounded-3xl shadow-2xl border-2 border-slate-300 p-4 flex flex-col items-center gap-3 animate-in zoom-in-90 duration-200">
-                  <div className="grid grid-cols-2 gap-2.5 w-72">
-                    <button onClick={() => sendBid('CONTRACT', 'SPADES')} className="py-2.5 bg-slate-100 hover:bg-slate-200 rounded-2xl font-black text-sm flex items-center justify-center gap-2 border border-slate-300 text-slate-900 cursor-pointer shadow-sm active:scale-95">
-                      <span className="text-2xl leading-none">♠</span> ПИКА
+                <div className="absolute z-40 bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-300 p-2 sm:p-3.5 flex flex-col items-center gap-2 animate-in zoom-in-90 max-w-[280px] sm:max-w-[320px]">
+                  <div className="grid grid-cols-2 gap-1.5 sm:gap-2 w-full">
+                    <button onClick={() => sendBid('CONTRACT', 'SPADES')} className="py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-xs flex items-center justify-center gap-1 border border-slate-300 text-slate-900 cursor-pointer">
+                      <span>♠</span> ПИКА
                     </button>
-                    <button onClick={() => sendBid('CONTRACT', 'HEARTS')} className="py-2.5 bg-slate-100 hover:bg-slate-200 rounded-2xl font-black text-sm flex items-center justify-center gap-2 border border-slate-300 text-red-600 cursor-pointer shadow-sm active:scale-95">
-                      <span className="text-2xl leading-none">♥</span> КУПА
+                    <button onClick={() => sendBid('CONTRACT', 'HEARTS')} className="py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-xs flex items-center justify-center gap-1 border border-slate-300 text-red-600 cursor-pointer">
+                      <span>♥</span> КУПА
                     </button>
-                    <button onClick={() => sendBid('CONTRACT', 'DIAMONDS')} className="py-2.5 bg-slate-100 hover:bg-slate-200 rounded-2xl font-black text-sm flex items-center justify-center gap-2 border border-slate-300 text-red-600 cursor-pointer shadow-sm active:scale-95">
-                      <span className="text-2xl leading-none">♦</span> КАРО
+                    <button onClick={() => sendBid('CONTRACT', 'DIAMONDS')} className="py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-xs flex items-center justify-center gap-1 border border-slate-300 text-red-600 cursor-pointer">
+                      <span>♦</span> КАРО
                     </button>
-                    <button onClick={() => sendBid('CONTRACT', 'CLUBS')} className="py-2.5 bg-slate-100 hover:bg-slate-200 rounded-2xl font-black text-sm flex items-center justify-center gap-2 border border-slate-300 text-slate-900 cursor-pointer shadow-sm active:scale-95">
-                      <span className="text-2xl leading-none">♣</span> СПАТИЯ
+                    <button onClick={() => sendBid('CONTRACT', 'CLUBS')} className="py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-xs flex items-center justify-center gap-1 border border-slate-300 text-slate-900 cursor-pointer">
+                      <span>♣</span> СПАТИЯ
                     </button>
-                    <button onClick={() => sendBid('CONTRACT', 'NO_TRUMP')} className="py-2.5 bg-slate-100 hover:bg-slate-200 rounded-2xl font-black text-sm text-slate-900 border border-slate-300 cursor-pointer shadow-sm active:scale-95">
+                    <button onClick={() => sendBid('CONTRACT', 'NO_TRUMP')} className="py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-xs text-slate-900 border border-slate-300 cursor-pointer">
                       БЕЗ КОЗ
                     </button>
-                    <button onClick={() => sendBid('CONTRACT', 'ALL_TRUMP')} className="py-2.5 bg-slate-100 hover:bg-slate-200 rounded-2xl font-black text-sm text-slate-900 border border-slate-300 cursor-pointer shadow-sm active:scale-95">
+                    <button onClick={() => sendBid('CONTRACT', 'ALL_TRUMP')} className="py-2 bg-slate-100 hover:bg-slate-200 rounded-xl font-black text-xs text-slate-900 border border-slate-300 cursor-pointer">
                       ВСИЧКО КОЗ
                     </button>
                   </div>
-                  <button onClick={() => sendBid('PASS')} className="w-full py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-base rounded-2xl shadow-md cursor-pointer active:scale-95">
+                  <button onClick={() => sendBid('PASS')} className="w-full py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow cursor-pointer">
                     ПАС
                   </button>
                 </div>
@@ -674,24 +676,22 @@ export function App() {
             </div>
 
             {/* Изток */}
-            <div className="flex flex-col items-center relative w-28">
+            <div className="flex flex-col items-center relative w-16 sm:w-24">
               {speechBubbles['EAST'] && (
-                <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
+                <div className="absolute -top-8 px-2 py-0.5 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
                   {speechBubbles['EAST']}
                 </div>
               )}
-              <div className={`w-18 h-18 rounded-2xl border-2 flex flex-col items-center justify-center shadow-xl transition-all ${gameState?.currentPlayer === 'EAST' ? 'border-amber-400 bg-amber-400/20 scale-105 ring-2 ring-amber-400' : 'border-[#143952] bg-[#0f283a]'}`}>
-                <div className="w-11 h-11 bg-emerald-600 rounded-full flex items-center justify-center text-xl shadow-inner">
-                  {seats.EAST.isBot ? '🤖' : '👤'}
-                </div>
-                <span className="text-[10px] font-bold text-slate-200 mt-0.5 truncate max-w-[65px]">
-                  {seats.EAST.name}
+              <div className={`w-12 h-12 sm:w-16 sm:h-16 rounded-xl border flex flex-col items-center justify-center shadow-lg transition-all ${gameState?.currentPlayer === 'EAST' ? 'border-amber-400 bg-amber-400/20 scale-105' : 'border-[#143952] bg-[#0f283a]'}`}>
+                <span className="text-base sm:text-xl">{seats.EAST?.isBot ? '🤖' : '👤'}</span>
+                <span className="text-[9px] font-bold text-slate-200 mt-0.5 truncate max-w-[45px] sm:max-w-[60px]">
+                  {seats.EAST?.name}
                 </span>
               </div>
               {gameState?.phase !== 'CUTTING' && (
-                <div className="flex flex-col gap-1 mt-2">
+                <div className="flex flex-col gap-1 mt-1">
                   {Array.from({ length: gameState?.handsOverview?.EAST?.cardCount || 0 }).map((_, i) => (
-                    <div key={i} style={{ animationDelay: `${i * 90}ms` }} className="w-12 h-7 bg-[#102d42] rounded-md border border-blue-400/60 shadow-md anim-deal-east"></div>
+                    <div key={i} className="w-8 h-4 sm:w-12 sm:h-7 bg-[#102d42] rounded border border-blue-400/50 shadow anim-deal-east"></div>
                   ))}
                 </div>
               )}
@@ -699,35 +699,34 @@ export function App() {
 
           </div>
 
-          {/* Юг (Твоята позиция по подразбиране или текущия играч) */}
-          <div className="flex flex-col items-center relative">
+          {/* Юг (Твоята ръка на телефона) */}
+          <div className="flex flex-col items-center relative mb-1">
             {speechBubbles[activeMyPos] && (
-              <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
+              <div className="absolute -top-8 px-3 py-1 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
                 {speechBubbles[activeMyPos]}
               </div>
             )}
 
             {/* Бутон за сортиране */}
             {gameState?.phase !== 'CUTTING' && gameState?.myHand && gameState.myHand.length > 0 && (
-              <div className="mb-2 z-20">
+              <div className="mb-1 z-20">
                 <button
                   onClick={() => setSortDescending(!sortDescending)}
-                  className="flex items-center gap-2 px-4 py-1.5 bg-[#0f283a]/90 hover:bg-[#143952] border border-amber-500/70 rounded-full shadow-lg cursor-pointer transition-all active:scale-95"
+                  className="px-3 py-1 bg-[#0f283a]/90 border border-amber-500/70 rounded-full shadow text-amber-400 font-black text-[10px] sm:text-xs active:scale-95 cursor-pointer"
                 >
-                  <span className="text-amber-400 font-black text-xs">
-                    {sortDescending ? '▼ По-силни отляво' : '▲ По-слаби отляво'}
-                  </span>
+                  {sortDescending ? '▼ Силни отляво' : '▲ Слаби отляво'}
                 </button>
               </div>
             )}
 
+            {/* Ветрило с адаптивни карти */}
             {gameState?.phase !== 'CUTTING' && (
-              <div className="flex justify-center items-end h-44 mb-3 relative w-full">
+              <div className="flex justify-center items-end h-28 sm:h-40 mb-1 sm:mb-2 relative w-full overflow-visible">
                 {sortedMyHand.map((c: Card, idx: number) => {
                   const total = sortedMyHand.length;
-                  const rot = (idx - (total - 1) / 2) * 4.5;
-                  const transX = (idx - (total - 1) / 2) * 52;
-                  const transY = Math.abs(idx - (total - 1) / 2) * 4.5;
+                  const rot = (idx - (total - 1) / 2) * (isMobile ? 3.5 : 4.5);
+                  const transX = (idx - (total - 1) / 2) * cardSpacing;
+                  const transY = Math.abs(idx - (total - 1) / 2) * (isMobile ? 2.5 : 4);
                   const playable = isCardPlayable(c);
                   const cardColor = SUIT_HEX[c.suit];
 
@@ -740,24 +739,24 @@ export function App() {
                         color: cardColor,
                         transform: `translateX(${transX}px) translateY(${transY}px) rotate(${rot}deg)`,
                         zIndex: idx + 10,
-                        animationDelay: `${idx * 110}ms`,
+                        animationDelay: `${idx * 80}ms`,
                       }}
-                      className={`absolute w-26 h-38 bg-white rounded-2xl shadow-2xl flex flex-col items-center justify-between p-3 border-2 transition-all duration-200 anim-deal-south ${
+                      className={`absolute w-16 h-26 sm:w-24 sm:h-36 bg-white rounded-xl sm:rounded-2xl shadow-xl flex flex-col items-center justify-between p-1.5 sm:p-2.5 border transition-all anim-deal-south ${
                         isMyTurnToPlay
                           ? playable
-                            ? 'border-emerald-500 hover:-translate-y-12 hover:shadow-emerald-400/60 cursor-pointer active:scale-95'
+                            ? 'border-emerald-500 -translate-y-3 sm:-translate-y-8 cursor-pointer active:scale-95'
                             : 'border-slate-300 opacity-60 cursor-not-allowed brightness-75'
                           : 'border-slate-300'
                       }`}
                     >
-                      <div className="flex justify-between items-center w-full leading-none font-black text-2xl">
+                      <div className="flex justify-between items-center w-full leading-none font-black text-sm sm:text-xl">
                         <span>{c.rank}</span>
-                        <span className="text-xl">{SUIT_SYMBOLS[c.suit]}</span>
+                        <span className="text-xs sm:text-lg">{SUIT_SYMBOLS[c.suit]}</span>
                       </div>
-                      <span className="text-6xl leading-none my-auto">{SUIT_SYMBOLS[c.suit]}</span>
-                      <div className="flex justify-between items-center w-full leading-none font-black text-2xl rotate-180">
+                      <span className="text-3xl sm:text-6xl leading-none my-auto">{SUIT_SYMBOLS[c.suit]}</span>
+                      <div className="flex justify-between items-center w-full leading-none font-black text-sm sm:text-xl rotate-180">
                         <span>{c.rank}</span>
-                        <span className="text-xl">{SUIT_SYMBOLS[c.suit]}</span>
+                        <span className="text-xs sm:text-lg">{SUIT_SYMBOLS[c.suit]}</span>
                       </div>
                     </button>
                   );
@@ -765,7 +764,7 @@ export function App() {
               </div>
             )}
 
-            <div className={`px-5 py-1.5 rounded-full text-xs font-black tracking-wide shadow-md ${isMyTurnToPlay ? 'bg-amber-400 text-slate-950 scale-105' : 'bg-[#0f2434] text-slate-200 border border-slate-700'}`}>
+            <div className={`px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-black shadow ${isMyTurnToPlay ? 'bg-amber-400 text-slate-950 scale-105' : 'bg-[#0f2434] text-slate-200 border border-slate-700'}`}>
               {seats[activeMyPos]?.name || 'Ти'} ({activeMyPos})
             </div>
           </div>
@@ -774,13 +773,11 @@ export function App() {
 
         {/* Модал за декларации */}
         {showDeclarationModal && availableDeclarations.length > 0 && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="w-[420px] bg-[#12283a] border-2 border-amber-500/80 rounded-2xl shadow-2xl p-5 flex flex-col gap-4 text-white">
-              <h2 className="text-lg font-black text-center tracking-wider uppercase text-white">
-                ИЗБЕРИ ДЕКЛАРАЦИЯ
-              </h2>
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+            <div className="w-full max-w-sm bg-[#12283a] border-2 border-amber-500/80 rounded-2xl shadow-2xl p-4 flex flex-col gap-3 text-white">
+              <h2 className="text-base font-black text-center uppercase">ИЗБЕРИ ДЕКЛАРАЦИЯ</h2>
 
-              <div className="flex flex-col gap-2.5 my-2">
+              <div className="flex flex-col gap-2">
                 {availableDeclarations.map(decl => {
                   const isChecked = selectedDeclIds.includes(decl.id);
                   const isRed = decl.suit === 'DIAMONDS' || decl.suit === 'HEARTS';
@@ -793,27 +790,20 @@ export function App() {
                           prev.includes(decl.id) ? prev.filter(x => x !== decl.id) : [...prev, decl.id]
                         );
                       }}
-                      className="flex items-center justify-between p-3 bg-[#0d1d2b] hover:bg-[#163045] rounded-xl border border-slate-700 cursor-pointer transition-colors"
+                      className="flex items-center justify-between p-2.5 bg-[#0d1d2b] rounded-xl border border-slate-700 cursor-pointer"
                     >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => {}}
-                          className="w-5 h-5 accent-amber-500 rounded cursor-pointer"
-                        />
-                        <span className="font-black text-sm tracking-wide">{decl.label}</span>
+                      <div className="flex items-center gap-2.5">
+                        <input type="checkbox" checked={isChecked} onChange={() => {}} className="w-4 h-4 accent-amber-500 rounded" />
+                        <span className="font-bold text-xs">{decl.label}</span>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 bg-white rounded-full flex items-center justify-center shadow">
-                          <span style={{ color: isRed ? '#dc2626' : '#0f172a' }} className="text-lg font-black">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center shadow">
+                          <span style={{ color: isRed ? '#dc2626' : '#0f172a' }} className="text-sm font-black">
                             {SUIT_SYMBOLS[decl.suit]}
                           </span>
                         </div>
-                        <span className="font-black text-base text-slate-200">
-                          {decl.ranks.join(' ')}
-                        </span>
+                        <span className="font-bold text-xs text-slate-200">{decl.ranks.join(' ')}</span>
                       </div>
                     </div>
                   );
@@ -822,7 +812,7 @@ export function App() {
 
               <button
                 onClick={confirmDeclarations}
-                className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-base rounded-xl shadow-lg cursor-pointer active:scale-95 transition-all uppercase tracking-wider"
+                className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm rounded-xl shadow cursor-pointer active:scale-95 uppercase"
               >
                 ПРОДЪЛЖИ
               </button>
@@ -830,98 +820,68 @@ export function App() {
           </div>
         )}
 
-        {/* Табло в края на рунда */}
+        {/* Табло край на рунда */}
         {gameState?.phase === 'ROUND_OVER' && summary && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-300">
-            <div className="w-[520px] bg-[#0c1824] border-2 border-amber-500/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100">
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-3">
+            <div className="w-full max-w-sm sm:max-w-md bg-[#0c1824] border-2 border-amber-500/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100 scale-95 sm:scale-100">
               
-              <div className="flex items-center justify-center gap-3 py-3.5 bg-[#08121b] border-b border-amber-500/40">
-                <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow">
-                  <span className="text-xl font-black text-red-600">J</span>
+              <div className="flex items-center justify-center gap-2 py-2.5 bg-[#08121b] border-b border-amber-500/40">
+                <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center shadow">
+                  <span className="text-sm font-black text-red-600">J</span>
                 </div>
-                <span className="text-lg font-black tracking-wider text-white uppercase">{summary.contractTitle}</span>
+                <span className="text-sm sm:text-base font-black text-white uppercase">{summary.contractTitle}</span>
               </div>
 
-              <div className="grid grid-cols-12 px-8 pt-4 pb-2 text-amber-400 font-black text-base tracking-wider">
+              <div className="grid grid-cols-12 px-4 sm:px-6 pt-3 pb-1 text-amber-400 font-black text-xs sm:text-sm">
                 <div className="col-span-6"></div>
                 <div className="col-span-3 text-center">НИЕ</div>
                 <div className="col-span-3 text-center">ВИЕ</div>
               </div>
 
-              <div className="flex flex-col text-sm font-semibold divide-y divide-amber-500/20 px-8">
-                
-                <div className="grid grid-cols-12 py-3 items-center">
-                  <div className="col-span-6 text-slate-300 tracking-wide font-bold">БЕЛОТИ</div>
-                  <div className="col-span-3 flex justify-center items-center gap-1.5 font-black text-base">
-                    {summary.belotPointsNS > 0 ? (
-                      <>
-                        <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center shadow">
-                          <span className="text-base text-red-600 leading-none">♥</span>
-                        </div>
-                        <span className="text-amber-400">+{summary.belotPointsNS}</span>
-                      </>
-                    ) : (
-                      <span>0</span>
-                    )}
-                  </div>
-                  <div className="col-span-3 text-center font-black text-base">{summary.belotPointsEW}</div>
+              <div className="flex flex-col text-xs font-semibold divide-y divide-amber-500/20 px-4 sm:px-6">
+                <div className="grid grid-cols-12 py-2 items-center">
+                  <div className="col-span-6 text-slate-300 font-bold">БЕЛОТИ</div>
+                  <div className="col-span-3 text-center font-black">{summary.belotPointsNS}</div>
+                  <div className="col-span-3 text-center font-black">{summary.belotPointsEW}</div>
                 </div>
 
-                <div className="grid grid-cols-12 py-3 items-center">
-                  <div className="col-span-6 text-slate-300 tracking-wide font-bold">ОБЯВЯВАНЕ</div>
-                  <div className="col-span-3 flex justify-center items-center gap-1.5 font-black text-base">
-                    {summary.declarationsNS && summary.declarationsNS.length > 0 ? (
-                      <>
-                        <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center shadow">
-                          <span className="text-base text-red-600 leading-none">♦</span>
-                        </div>
-                        <span className="text-xs text-white">{summary.declarationsNS[0].label}</span>
-                        <span className="text-amber-400 text-xs">+{summary.declarationsNS[0].points}</span>
-                      </>
-                    ) : (
-                      <span>0</span>
-                    )}
+                <div className="grid grid-cols-12 py-2 items-center">
+                  <div className="col-span-6 text-slate-300 font-bold">ОБЯВЯВАНЕ</div>
+                  <div className="col-span-3 text-center font-black text-amber-300">
+                    {summary.declarationsNS?.length ? summary.declarationsNS.map((d: any) => d.label).join(', ') : '0'}
                   </div>
-                  <div className="col-span-3 text-center font-black text-base">
-                    {summary.declarationsEW?.length ? summary.declarationsEW.map((d: any) => d.points).reduce((a: number, b: number) => a + b, 0) : '0'}
+                  <div className="col-span-3 text-center font-black text-amber-300">
+                    {summary.declarationsEW?.length ? summary.declarationsEW.map((d: any) => d.label).join(', ') : '0'}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-12 py-3 items-center">
-                  <div className="col-span-6 text-slate-300 tracking-wide font-bold">ОТ РЪЦЕТЕ</div>
-                  <div className="col-span-3 text-center font-black text-base">{summary.handPointsNS}</div>
-                  <div className="col-span-3 text-center font-black text-base">{summary.handPointsEW}</div>
+                <div className="grid grid-cols-12 py-2 items-center">
+                  <div className="col-span-6 text-slate-300 font-bold">ОТ РЪЦЕТЕ</div>
+                  <div className="col-span-3 text-center font-black">{summary.handPointsNS}</div>
+                  <div className="col-span-3 text-center font-black">{summary.handPointsEW}</div>
                 </div>
 
-                <div className="grid grid-cols-12 py-3 items-center">
-                  <div className="col-span-6 text-slate-300 tracking-wide font-bold">СБОР</div>
-                  <div className="col-span-3 flex justify-center items-center gap-2 font-black text-base text-slate-200">
-                    <span>{summary.totalPointsNS}</span>
-                    {summary.outcomeText.includes('ВЪТРЕ') && (
-                      <span className="text-amber-400 text-lg">➔</span>
-                    )}
-                  </div>
-                  <div className="col-span-3 text-center font-black text-base text-slate-200">{summary.totalPointsEW}</div>
+                <div className="grid grid-cols-12 py-2 items-center">
+                  <div className="col-span-6 text-slate-300 font-bold">СБОР</div>
+                  <div className="col-span-3 text-center font-black">{summary.totalPointsNS}</div>
+                  <div className="col-span-3 text-center font-black">{summary.totalPointsEW}</div>
                 </div>
 
-                <div className="grid grid-cols-12 py-3 items-center">
-                  <div className="col-span-6 text-slate-300 tracking-wide font-bold">ИЗХОД</div>
-                  <div className="col-span-6 text-center font-black text-base text-amber-300 uppercase">
-                    {summary.outcomeText}
-                  </div>
+                <div className="grid grid-cols-12 py-2 items-center">
+                  <div className="col-span-6 text-slate-300 font-bold">ИЗХОД</div>
+                  <div className="col-span-6 text-center font-black text-amber-300 uppercase">{summary.outcomeText}</div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-12 px-8 py-3.5 bg-amber-500 text-slate-950 font-black text-base items-center mt-3 shadow-inner">
-                <div className="col-span-6 tracking-wider text-base">РЕЗУЛТАТ</div>
-                <div className="col-span-3 text-center text-xl">{summary.scoreAddedNS}</div>
-                <div className="col-span-3 text-center text-xl">{summary.scoreAddedEW}</div>
+              <div className="grid grid-cols-12 px-4 sm:px-6 py-2.5 bg-amber-500 text-slate-950 font-black text-xs sm:text-sm items-center mt-2">
+                <div className="col-span-6">РЕЗУЛТАТ</div>
+                <div className="col-span-3 text-center text-lg">{summary.scoreAddedNS}</div>
+                <div className="col-span-3 text-center text-lg">{summary.scoreAddedEW}</div>
               </div>
 
-              <div className="py-2.5 bg-[#08121b] text-center text-xs text-slate-400 font-bold tracking-wide border-t border-slate-800">
-                Играта продължава след {countdown} сек.
+              <div className="py-2 bg-[#08121b] text-center text-[10px] text-slate-400 font-bold border-t border-slate-800">
+                Следващо раздаване след {countdown} сек.
               </div>
-
             </div>
           </div>
         )}
