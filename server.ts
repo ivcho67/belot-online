@@ -1,8 +1,3 @@
-/**
- * File: server.ts
- * Version: v5.0.0 - Full Multiplayer Engine with Seat Selection
- */
-
 import { WebSocketServer, WebSocket } from 'ws';
 
 export type Suit = 'CLUBS' | 'DIAMONDS' | 'HEARTS' | 'SPADES';
@@ -42,10 +37,10 @@ export interface RoundSummary {
   scoreAddedEW: number;
 }
 
-interface ConnectedPlayer {
-  ws: WebSocket;
+interface SeatInfo {
   name: string;
-  position: PlayerPosition;
+  isBot: boolean;
+  ws?: WebSocket;
 }
 
 const SUITS: Suit[] = ['CLUBS', 'DIAMONDS', 'HEARTS', 'SPADES'];
@@ -74,13 +69,13 @@ const NON_TRUMP_VALUES: Record<Rank, number> = {
   '7': 0, '8': 0, '9': 0, 'J': 2, 'Q': 3, 'K': 4, '10': 10, 'A': 11
 };
 
-class MultiplayerBelotRoom {
+class SharedBelotRoom {
   public phase: GamePhase = 'LOBBY';
-  public seats: Record<PlayerPosition, { name: string; isBot: boolean }> = {
-    SOUTH: { name: 'Свободно', isBot: true },
-    NORTH: { name: 'Свободно', isBot: true },
-    EAST: { name: 'Свободно', isBot: true },
-    WEST: { name: 'Свободно', isBot: true },
+  public seats: Record<PlayerPosition, SeatInfo> = {
+    SOUTH: { name: 'Bot South', isBot: true },
+    NORTH: { name: 'Bot North', isBot: true },
+    EAST: { name: 'Bot East', isBot: true },
+    WEST: { name: 'Bot West', isBot: true },
   };
 
   public dealer: PlayerPosition = 'WEST';
@@ -178,13 +173,8 @@ class MultiplayerBelotRoom {
       this.lastAction = { player, text: 'ПАС' };
 
       if (!this.auction.currentContract && this.auction.consecutivePasses >= 4) {
-        this.auction.currentContract = 'ALL_TRUMP';
-        this.auction.declarer = player;
-        this.lastAction = { player, text: 'ВСИЧКО КОЗ' };
-        this.dealRemainingThree();
-        this.phase = 'PLAYING';
-        this.currentTrickNumber = 1;
-        this.currentPlayer = NEXT_PLAYER[this.dealer];
+        this.dealer = NEXT_PLAYER[this.dealer];
+        this.startNewRound();
         return;
       }
 
@@ -201,6 +191,14 @@ class MultiplayerBelotRoom {
       this.auction.multiplier = 'NORMAL';
       this.auction.consecutivePasses = 0;
       this.lastAction = { player, text: contract };
+    } else if (bidType === 'CONTRA') {
+      this.auction.multiplier = 'CONTRA';
+      this.auction.consecutivePasses = 0;
+      this.lastAction = { player, text: 'КОНТРА' };
+    } else if (bidType === 'RECONTRA') {
+      this.auction.multiplier = 'RECONTRA';
+      this.auction.consecutivePasses = 0;
+      this.lastAction = { player, text: 'РЕКОНТРА' };
     }
 
     this.currentPlayer = NEXT_PLAYER[this.currentPlayer];
@@ -501,6 +499,14 @@ class MultiplayerBelotRoom {
       outcomeText = 'ВИСЯЩИ ТОЧКИ';
     }
 
+    if (this.auction.multiplier === 'CONTRA') {
+      scoreNS *= 2;
+      scoreEW *= 2;
+    } else if (this.auction.multiplier === 'RECONTRA') {
+      scoreNS *= 4;
+      scoreEW *= 4;
+    }
+
     this.scores.NORTH_SOUTH += scoreNS;
     this.scores.EAST_WEST += scoreEW;
 
@@ -538,16 +544,22 @@ class MultiplayerBelotRoom {
   }
 
   public getPayloadFor(targetPosition: PlayerPosition) {
+    const safeSeats: Record<PlayerPosition, { name: string; isBot: boolean }> = {
+      SOUTH: { name: this.seats.SOUTH.name, isBot: this.seats.SOUTH.isBot },
+      NORTH: { name: this.seats.NORTH.name, isBot: this.seats.NORTH.isBot },
+      EAST: { name: this.seats.EAST.name, isBot: this.seats.EAST.isBot },
+      WEST: { name: this.seats.WEST.name, isBot: this.seats.WEST.isBot },
+    };
+
     return {
       phase: this.phase,
-      seats: this.seats,
-      myPosition: targetPosition,
+      seats: safeSeats,
       dealer: this.dealer,
       cutter: this.cutter,
       currentPlayer: this.currentPlayer,
       auction: this.auction,
       declarer: this.auction.declarer,
-      myHand: this.hands[targetPosition],
+      myHand: this.hands[targetPosition] || [],
       handsOverview: {
         NORTH: { cardCount: this.hands.NORTH.length },
         EAST: { cardCount: this.hands.EAST.length },
@@ -568,22 +580,18 @@ class MultiplayerBelotRoom {
 
 const PORT = Number(process.env.PORT) || 8080;
 const wss = new WebSocketServer({ port: PORT });
-const room = new MultiplayerBelotRoom();
-const clientsMap = new Map<WebSocket, ConnectedPlayer>();
+const sharedRoom = new SharedBelotRoom();
+
+// Karta: vryzka -> izbrano myasto
+const socketToPosition = new Map<WebSocket, PlayerPosition>();
 
 function broadcastState() {
-  clientsMap.forEach((player, ws) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      const payload = room.getPayloadFor(player.position);
-      ws.send(JSON.stringify({ type: 'GAME_STATE_UPDATE', payload }));
-    }
-  });
-
-  // За клиенти, които още не са седнали (в лобито)
+  // Izprashtame na vseki svurzan klient tochnite mu karti za negovoto myasto
   wss.clients.forEach(ws => {
-    if (!clientsMap.has(ws) && ws.readyState === WebSocket.OPEN) {
-      const payload = room.getPayloadFor('SOUTH');
-      ws.send(JSON.stringify({ type: 'GAME_STATE_UPDATE', payload }));
+    if (ws.readyState === WebSocket.OPEN) {
+      const pos = socketToPosition.get(ws) || 'SOUTH';
+      const payload = sharedRoom.getPayloadFor(pos);
+      ws.send(JSON.stringify({ type: 'GAME_STATE_UPDATE', payload: { ...payload, myPosition: socketToPosition.get(ws) || null } }));
     }
   });
 
@@ -591,53 +599,56 @@ function broadcastState() {
 }
 
 function handleBotNextAction() {
-  if (room.isResolvingTrick || room.phase === 'ROUND_OVER' || room.phase === 'LOBBY') return;
+  if (sharedRoom.isResolvingTrick || sharedRoom.phase === 'ROUND_OVER' || sharedRoom.phase === 'LOBBY') return;
 
-  const currentSeat = room.seats[room.currentPlayer];
-  if (!currentSeat.isBot) return; // Реален човек е на ход, ботът не се намесва
+  const currentSeat = sharedRoom.seats[sharedRoom.currentPlayer];
+  if (!currentSeat.isBot) return; // Na hod e chovek, botut ne pipa
 
-  if (room.phase === 'CUTTING') {
+  if (sharedRoom.phase === 'CUTTING') {
     setTimeout(() => {
-      room.cutDeck(16);
+      sharedRoom.cutDeck(16);
       broadcastState();
     }, 900);
     return;
   }
 
-  if (room.phase === 'BIDDING') {
+  if (sharedRoom.phase === 'BIDDING') {
     setTimeout(() => {
-      const hand = room.hands[room.currentPlayer];
+      const hand = sharedRoom.hands[sharedRoom.currentPlayer];
       const hasJacks = hand.filter(c => c.rank === 'J').length;
       const hasAces = hand.filter(c => c.rank === 'A').length;
 
-      if (!room.auction.currentContract && (hasJacks >= 2 || hasAces >= 2)) {
-        room.makeBid(room.currentPlayer, 'CONTRACT', 'ALL_TRUMP');
+      if (!sharedRoom.auction.currentContract && (hasJacks >= 2 || hasAces >= 2)) {
+        sharedRoom.makeBid(sharedRoom.currentPlayer, 'CONTRACT', 'ALL_TRUMP');
       } else {
-        room.makeBid(room.currentPlayer, 'PASS');
+        sharedRoom.makeBid(sharedRoom.currentPlayer, 'PASS');
       }
       broadcastState();
     }, 1100);
     return;
   }
 
-  if (room.phase === 'PLAYING') {
+  if (sharedRoom.phase === 'PLAYING') {
     setTimeout(() => {
-      const botPos = room.currentPlayer;
-      const botCards = room.hands[botPos];
+      const botPos = sharedRoom.currentPlayer;
+      const botCards = sharedRoom.hands[botPos];
 
       if (!botCards || botCards.length === 0) return;
 
-      const validCards = botCards.filter(c => room.isCardValidForPlay(botPos, c));
+      const validCards = botCards.filter(c => sharedRoom.isCardValidForPlay(botPos, c));
       const chosenCard = validCards.length > 0 ? validCards[0] : botCards[0];
 
-      room.playCard(botPos, chosenCard);
+      sharedRoom.playCard(botPos, chosenCard);
       broadcastState();
     }, 1250);
   }
 }
 
 wss.on('connection', ws => {
-  broadcastState();
+  // Pri nova vruzka NE restartirame igrata, a prosto mu davame tekushtoto sustoyanie
+  const pos = socketToPosition.get(ws) || 'SOUTH';
+  const payload = sharedRoom.getPayloadFor(pos);
+  ws.send(JSON.stringify({ type: 'GAME_STATE_UPDATE', payload: { ...payload, myPosition: null } }));
 
   ws.on('message', rawMsg => {
     try {
@@ -646,39 +657,46 @@ wss.on('connection', ws => {
       switch (data.type) {
         case 'JOIN_SEAT': {
           const { name, position } = data.payload as { name: string; position: PlayerPosition };
-          room.seats[position] = { name: name.trim() || 'Играч', isBot: false };
-          clientsMap.set(ws, { ws, name, position });
+          
+          // Osvobozhdavame predishno myasto na tozi socket ako ima
+          const prevPos = socketToPosition.get(ws);
+          if (prevPos && prevPos !== position) {
+            sharedRoom.seats[prevPos] = { name: `Bot ${prevPos}`, isBot: true };
+          }
 
-          // Ако има поне един играч и сме в LOBBY, стартираме играта
-          if (room.phase === 'LOBBY') {
-            room.startNewRound();
+          sharedRoom.seats[position] = { name: name.trim() || 'Играч', isBot: false, ws };
+          socketToPosition.set(ws, position);
+
+          // Ako igrata oshte ne e pochnala ili e v LOBBY, q startirame
+          if (sharedRoom.phase === 'LOBBY') {
+            sharedRoom.startNewRound();
           }
           broadcastState();
           break;
         }
 
         case 'CUT_DECK':
-          room.cutDeck(data.payload.cutIndex);
+          sharedRoom.cutDeck(data.payload.cutIndex);
           broadcastState();
           break;
 
         case 'MAKE_BID': {
-          const player = clientsMap.get(ws)?.position || 'SOUTH';
-          room.makeBid(player, data.payload.bidType, data.payload.contract);
+          const player = socketToPosition.get(ws) || 'SOUTH';
+          sharedRoom.makeBid(player, data.payload.bidType, data.payload.contract);
           broadcastState();
           break;
         }
 
         case 'SUBMIT_DECLARATIONS': {
-          const player = clientsMap.get(ws)?.position || 'SOUTH';
-          room.addDeclarations(player, data.payload.declarations);
+          const player = socketToPosition.get(ws) || 'SOUTH';
+          sharedRoom.addDeclarations(player, data.payload.declarations);
           broadcastState();
           break;
         }
 
         case 'PLAY_CARD': {
-          const player = clientsMap.get(ws)?.position || 'SOUTH';
-          room.playCard(player, data.payload.card);
+          const player = socketToPosition.get(ws) || 'SOUTH';
+          sharedRoom.playCard(player, data.payload.card);
           broadcastState();
           break;
         }
@@ -689,13 +707,13 @@ wss.on('connection', ws => {
   });
 
   ws.on('close', () => {
-    const player = clientsMap.get(ws);
-    if (player) {
-      room.seats[player.position] = { name: `Бот (${player.position})`, isBot: true };
-      clientsMap.delete(ws);
+    const pos = socketToPosition.get(ws);
+    if (pos) {
+      sharedRoom.seats[pos] = { name: `Bot ${pos}`, isBot: true };
+      socketToPosition.delete(ws);
       broadcastState();
     }
   });
 });
 
-console.log(`[Belot Multiplayer Server] Live on port ${PORT}`);
+console.log(`[Belot Dedicated Multiplayer Server] Running on port ${PORT}`);
