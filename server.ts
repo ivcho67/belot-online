@@ -47,7 +47,7 @@ const NEXT_PLAYER: Record<PlayerPosition, PlayerPosition> = {
   WEST: 'SOUTH',
 };
 
-// Sila na rangovete pri opredelyane na pobeditel
+// Взятъчна сила на картите
 const TRUMP_POWER: Record<Rank, number> = {
   '7': 0, '8': 1, 'Q': 2, 'K': 3, '10': 4, 'A': 5, '9': 6, 'J': 7
 };
@@ -56,7 +56,7 @@ const NON_TRUMP_POWER: Record<Rank, number> = {
   '7': 0, '8': 1, '9': 2, 'J': 3, 'Q': 4, 'K': 5, '10': 6, 'A': 7
 };
 
-// Tochki pri broene
+// Точкова стойност на картите
 const TRUMP_VALUES: Record<Rank, number> = {
   '7': 0, '8': 0, 'Q': 3, 'K': 4, '10': 10, 'A': 11, '9': 14, 'J': 20
 };
@@ -205,62 +205,60 @@ class BelotGameEngine {
   }
 
   /**
-   * ZASHTITENO KANONICHNO OPREDELYANE NA POBEDITEL VUV VZYATKATA
+   * СТРОГО КРАЙНО ОПРЕДЕЛЯНЕ НА ПОБЕДИТЕЛЯ ВЪВ ВЗЯТКАТА
    */
   public getCurrentTrickWinner(): { winner: PlayerPosition; highestPower: number } {
+    const trick = this.currentTrickCards;
+    if (!trick || trick.length === 0) {
+      return { winner: this.currentPlayer, highestPower: -1 };
+    }
+
     const contract = this.auction.currentContract!;
-    const leadCard = this.currentTrickCards[0].card;
+    const leadCard = trick[0].card;
     const leadSuit = leadCard.suit;
+    let winner = trick[0].player;
 
-    let winner = this.currentTrickCards[0].player;
-
-    // 1. VSICHKO KOZ: Vzima nai-visokata karta STROGO OT VODENATA BOYA!
-    // Karta ot razlichna boya se ignorira 100%!
+    // 1. ВСИЧКО КОЗ (ALL_TRUMP): печели най-високата от ИСКАНАТА боя!
     if (contract === 'ALL_TRUMP') {
-      let highest = TRUMP_POWER[leadCard.rank];
-      for (let i = 1; i < this.currentTrickCards.length; i++) {
-        const tc = this.currentTrickCards[i];
+      let highestPower = TRUMP_POWER[leadCard.rank];
+      for (let i = 1; i < trick.length; i++) {
+        const tc = trick[i];
         if (tc.card.suit === leadSuit) {
           const power = TRUMP_POWER[tc.card.rank];
-          if (power > highest) {
-            highest = power;
+          if (power > highestPower) {
+            highestPower = power;
             winner = tc.player;
           }
         }
       }
-      return { winner, highestPower: highest };
+      return { winner, highestPower };
     }
 
-    // 2. BEZ KOZ: Vzima nai-visokata karta STROGO OT VODENATA BOYA!
+    // 2. БЕЗ КОЗ (NO_TRUMP): печели най-високата от ИСКАНАТА боя!
     if (contract === 'NO_TRUMP') {
-      let highest = NON_TRUMP_POWER[leadCard.rank];
-      for (let i = 1; i < this.currentTrickCards.length; i++) {
-        const tc = this.currentTrickCards[i];
+      let highestPower = NON_TRUMP_POWER[leadCard.rank];
+      for (let i = 1; i < trick.length; i++) {
+        const tc = trick[i];
         if (tc.card.suit === leadSuit) {
           const power = NON_TRUMP_POWER[tc.card.rank];
-          if (power > highest) {
-            highest = power;
+          if (power > highestPower) {
+            highestPower = power;
             winner = tc.player;
           }
         }
       }
-      return { winner, highestPower: highest };
+      return { winner, highestPower };
     }
 
-    // 3. IGRA NA BOYA (EDIN KOZ)
+    // 3. ИГРА НА БОЯ
     const trumpSuit = contract as Suit;
-    let highestTrumpPower = -1;
-    let hasTrump = false;
-    let highestLeadPower = NON_TRUMP_POWER[leadCard.rank];
+    let hasTrump = leadSuit === trumpSuit;
+    let highestTrumpPower = hasTrump ? TRUMP_POWER[leadCard.rank] : -1;
+    let highestLeadPower = hasTrump ? -1 : NON_TRUMP_POWER[leadCard.rank];
 
-    if (leadSuit === trumpSuit) {
-      highestTrumpPower = TRUMP_POWER[leadCard.rank];
-      hasTrump = true;
-    }
-
-    for (let i = 1; i < this.currentTrickCards.length; i++) {
-      const tc = this.currentTrickCards[i];
-      const isTrump = (tc.card.suit === trumpSuit);
+    for (let i = 1; i < trick.length; i++) {
+      const tc = trick[i];
+      const isTrump = tc.card.suit === trumpSuit;
 
       if (isTrump) {
         const power = TRUMP_POWER[tc.card.rank];
@@ -278,11 +276,14 @@ class BelotGameEngine {
       }
     }
 
-    return { winner, highestPower: hasTrump ? highestTrumpPower : highestLeadPower };
+    return { 
+      winner, 
+      highestPower: hasTrump ? highestTrumpPower : highestLeadPower 
+    };
   }
 
   /**
-   * ZASHTITENI PRAVILA ZA VALIDNOST NA KARTATA
+   * СТРОГИ ПРАВИЛА ЗА ВАЛИДНОСТ НА КАРТИТЕ
    */
   public isCardValidForPlay(player: PlayerPosition, card: Card): boolean {
     const hand = this.hands[player];
@@ -300,13 +301,13 @@ class BelotGameEngine {
       (player === 'EAST' && winner === 'WEST') ||
       (player === 'WEST' && winner === 'EAST');
 
-    // BEZ KOZ: Samo zadulzhitelno otgovaryane na boya
+    // БЕЗ КОЗ: Задължително отговаряне на боята, няма качване
     if (contract === 'NO_TRUMP') {
       if (hasLeadSuit) return card.suit === leadSuit;
       return true;
     }
 
-    // VSICHKO KOZ: Zadulzhitelno otgovaryane i zadulzhitelno kachvane
+    // ВСИЧКО КОЗ: Задължително отговаряне и задължително качване[cite: 14]
     if (contract === 'ALL_TRUMP') {
       if (hasLeadSuit) {
         if (card.suit !== leadSuit) return false;
@@ -314,10 +315,10 @@ class BelotGameEngine {
         if (higherInLead.length > 0) return TRUMP_POWER[card.rank] > highestPower;
         return true;
       }
-      return true; // nyama ot vodenata boya -> mozhe svobodno da chisti
+      return true; // няма от боята -> свободен ход[cite: 14]
     }
 
-    // IGRA NA BOYA
+    // ИГРА НА БОЯ
     const trumpSuit = contract as Suit;
     const isLeadTrump = (leadSuit === trumpSuit);
 
@@ -335,10 +336,10 @@ class BelotGameEngine {
       return card.suit === leadSuit;
     }
 
-    // Nyamash ot vodenata boya:
-    if (isPartnerWinning) return true; // partnyorat vodi -> ne si dluzhen da cakash
+    // Няма от исканата боя:
+    if (isPartnerWinning) return true; // Партньорът води -> не цакаме[cite: 14]
 
-    // Protivnik vodi -> zadulzhitelno cakane i nadcakvane
+    // Противникът води -> задължително цакане и надцакване[cite: 14]
     const trumps = hand.filter(c => c.suit === trumpSuit);
     if (trumps.length > 0) {
       if (card.suit !== trumpSuit) return false;
@@ -386,7 +387,7 @@ class BelotGameEngine {
       }
     }
 
-    // Posledno 10
+    // Премия за последно 10[cite: 14]
     if (this.currentTrickNumber === 8) {
       trickSum += (contract === 'NO_TRUMP' ? 20 : 10);
     }
@@ -415,6 +416,9 @@ class BelotGameEngine {
     }, 2200);
   }
 
+  /**
+   * ТОЧКУВАНЕ: ВЪТРЕ, КАПО, ВИСЯЩИ ТОЧКИ И ЗАКРЪГЛЯНЕ ПО BELOT.BG[cite: 14]
+   */
   private finalizeRound() {
     this.phase = 'ROUND_OVER';
     const declarer = this.auction.declarer!;
@@ -429,6 +433,7 @@ class BelotGameEngine {
     const declsNSFormatted: { label: string; points: number }[] = [];
     const declsEWFormatted: { label: string; points: number }[] = [];
 
+    // При Без коз не важат обяви[cite: 14]
     if (contract !== 'NO_TRUMP') {
       this.submittedDeclarations.forEach(sub => {
         const isNS = (sub.player === 'SOUTH' || sub.player === 'NORTH');
@@ -460,6 +465,7 @@ class BelotGameEngine {
     let scoreEW = 0;
     let outcomeText = 'ИЗКАРАНА';
 
+    // 1. Проверка за КАПО (ВАЛАТ): 8 взятки = +90 точки (+9 в записа)[cite: 14]
     const isCapotNS = (this.tricksWon.NORTH_SOUTH === 8);
     const isCapotEW = (this.tricksWon.EAST_WEST === 8);
 
@@ -474,6 +480,7 @@ class BelotGameEngine {
       this.hangingPoints = 0;
       outcomeText = 'КАПО (ВАЛАТ)!';
     } else if (declarerTotal > defenderTotal) {
+      // ИЗКАРАНА: стриктно повече точки[cite: 14]
       scoreNS = Math.round(totalRawNS / 10);
       scoreEW = Math.round(totalRawEW / 10);
       if (declarerIsNS) scoreNS += this.hangingPoints;
@@ -481,6 +488,7 @@ class BelotGameEngine {
       this.hangingPoints = 0;
       outcomeText = 'ИЗКАРАНА';
     } else if (declarerTotal < defenderTotal) {
+      // ВЪТРЕ: всички точки отиват при защитниците[cite: 14]
       const allPoints = Math.round((totalRawNS + totalRawEW) / 10) + this.hangingPoints;
       this.hangingPoints = 0;
       if (declarerIsNS) {
@@ -492,6 +500,7 @@ class BelotGameEngine {
       }
       outcomeText = 'ВЪТРЕ';
     } else {
+      // ВИСЯЩИ ТОЧКИ: абсолютно равен резултат[cite: 14]
       const defScore = Math.round(defenderTotal / 10);
       const decScore = Math.round(declarerTotal / 10);
       this.hangingPoints += decScore;
@@ -506,6 +515,7 @@ class BelotGameEngine {
       outcomeText = 'ВИСЯЩИ ТОЧКИ';
     }
 
+    // Контра / Реконтра[cite: 14]
     if (this.auction.multiplier === 'CONTRA') {
       scoreNS *= 2;
       scoreEW *= 2;
@@ -543,6 +553,7 @@ class BelotGameEngine {
 
     broadcastState();
 
+    // 8.5 секунди фиксирано показване на модала
     setTimeout(() => {
       this.dealer = NEXT_PLAYER[this.dealer];
       this.startNewRound();
