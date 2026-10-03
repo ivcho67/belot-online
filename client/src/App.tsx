@@ -60,7 +60,7 @@ const SEQUENCE_ORDER: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 export function App() {
   const [gameState, setGameState] = useState<any>(null);
   const [myPosition, setMyPosition] = useState<PlayerPosition | null>(null);
-  const [playerName, setPlayerName] = useState('');
+  const [playerName, setPlayerName] = useState(() => localStorage.getItem('belot_name') || '');
   const [hasJoined, setHasJoined] = useState(false);
 
   const [sortDescending, setSortDescending] = useState(true);
@@ -75,8 +75,19 @@ export function App() {
   const [selectedDeclIds, setSelectedDeclIds] = useState<string[]>([]);
   const [hasPromptedDeclarations, setHasPromptedDeclarations] = useState(false);
 
-  // Следене дали екранът е мобилен
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  // Уникален ID на устройството
+  const socketIdRef = useRef<string>(
+    (() => {
+      let id = sessionStorage.getItem('belot_device_id');
+      if (!id) {
+        id = 'dev_' + Math.random().toString(36).substr(2, 9);
+        sessionStorage.setItem('belot_device_id', id);
+      }
+      return id;
+    })()
+  );
 
   const socketRef = useRef<WebSocket | null>(null);
 
@@ -99,8 +110,9 @@ export function App() {
         const payload = data.payload;
         setGameState(payload);
 
-        if (payload.myPosition && hasJoined) {
+        if (payload.myPosition) {
           setMyPosition(payload.myPosition);
+          setHasJoined(true);
         }
 
         if (payload.phase === 'CUTTING') {
@@ -128,11 +140,13 @@ export function App() {
             });
           }, 2400);
         }
+      } else if (data.type === 'SEAT_TAKEN_ERROR') {
+        alert(data.message);
       }
     };
 
     return () => ws.close();
-  }, [hasJoined]);
+  }, []);
 
   useEffect(() => {
     if (gameState?.phase === 'ROUND_OVER') {
@@ -144,6 +158,7 @@ export function App() {
     }
   }, [gameState?.phase]);
 
+  // Обяви при 1-ва взятка
   useEffect(() => {
     if (!gameState || gameState.phase !== 'PLAYING' || hasPromptedDeclarations) return;
     if (gameState.currentTrickNumber !== 1) return;
@@ -217,12 +232,18 @@ export function App() {
 
   const joinTable = (pos: PlayerPosition) => {
     if (!playerName.trim()) return;
+    localStorage.setItem('belot_name', playerName.trim());
     setMyPosition(pos);
     setHasJoined(true);
+
     socketRef.current?.send(
       JSON.stringify({
         type: 'JOIN_SEAT',
-        payload: { name: playerName, position: pos },
+        payload: { 
+          name: playerName.trim(), 
+          position: pos, 
+          socketId: socketIdRef.current 
+        },
       })
     );
   };
@@ -261,8 +282,8 @@ export function App() {
   };
 
   const isCardPlayable = (card: Card): boolean => {
-    const currentMyPos = myPosition || 'SOUTH';
-    if (!gameState || gameState.phase !== 'PLAYING' || gameState.currentPlayer !== currentMyPos || gameState.isResolvingTrick) {
+    if (!myPosition) return false;
+    if (!gameState || gameState.phase !== 'PLAYING' || gameState.currentPlayer !== myPosition || gameState.isResolvingTrick) {
       return false;
     }
 
@@ -299,10 +320,10 @@ export function App() {
     }
 
     const isPartnerWinning =
-      (currentMyPos === 'SOUTH' && winner === 'NORTH') ||
-      (currentMyPos === 'NORTH' && winner === 'SOUTH') ||
-      (currentMyPos === 'EAST' && winner === 'WEST') ||
-      (currentMyPos === 'WEST' && winner === 'EAST');
+      (myPosition === 'SOUTH' && winner === 'NORTH') ||
+      (myPosition === 'NORTH' && winner === 'SOUTH') ||
+      (myPosition === 'EAST' && winner === 'WEST') ||
+      (myPosition === 'WEST' && winner === 'EAST');
 
     if (contract === 'NO_TRUMP') {
       return hasLeadSuit ? card.suit === leadSuit : true;
@@ -374,10 +395,9 @@ export function App() {
     });
   }, [gameState?.myHand, gameState?.auction?.currentContract, sortDescending]);
 
-  const activeMyPos = myPosition || 'SOUTH';
-  const isMyTurnToCut = gameState?.phase === 'CUTTING' && gameState?.cutter === activeMyPos;
-  const isMyTurnToBid = gameState?.phase === 'BIDDING' && gameState?.currentPlayer === activeMyPos;
-  const isMyTurnToPlay = gameState?.phase === 'PLAYING' && gameState?.currentPlayer === activeMyPos && !gameState?.isResolvingTrick;
+  const isMyTurnToCut = Boolean(myPosition && gameState?.phase === 'CUTTING' && gameState?.cutter === myPosition);
+  const isMyTurnToBid = Boolean(myPosition && gameState?.phase === 'BIDDING' && gameState?.currentPlayer === myPosition);
+  const isMyTurnToPlay = Boolean(myPosition && gameState?.phase === 'PLAYING' && gameState?.currentPlayer === myPosition && !gameState?.isResolvingTrick);
 
   const getCollectAnimClass = () => {
     if (!isCollectingVisual || !gameState?.trickWinner) return '';
@@ -392,24 +412,24 @@ export function App() {
 
   const summary = gameState?.roundSummary;
   const seats = gameState?.seats || {
-    SOUTH: { name: 'Bot South', isBot: true },
-    NORTH: { name: 'Bot North', isBot: true },
-    EAST: { name: 'Bot East', isBot: true },
-    WEST: { name: 'Bot West', isBot: true },
+    SOUTH: { name: 'Свободно', isBot: true, isTaken: false },
+    NORTH: { name: 'Свободно', isBot: true, isTaken: false },
+    EAST: { name: 'Свободно', isBot: true, isTaken: false },
+    WEST: { name: 'Свободно', isBot: true, isTaken: false },
   };
 
-  // Размери за мобилен екран спрямо десктоп
   const cardSpacing = isMobile ? 32 : 52;
+  const activeDisplayPos = myPosition || 'SOUTH';
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#132f42] select-none overflow-hidden font-sans relative">
       
-      {/* Модално лоби за вход */}
+      {/* ЛОБИ ПРОЗОРЕЦ: Заетите места се заключват за други устройства */}
       {!hasJoined && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
           <div className="w-full max-w-md bg-[#102534] border-2 border-amber-500 rounded-3xl p-5 shadow-2xl flex flex-col gap-4 text-white">
             <h1 className="text-xl sm:text-2xl font-black text-center tracking-wider text-amber-400 uppercase">
-              Belot Online Mobile
+              Избери своето място
             </h1>
 
             <div className="flex flex-col gap-1">
@@ -425,43 +445,61 @@ export function App() {
 
             <div className="flex flex-col gap-2.5">
               <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                Избери отбор и позиция:
+                Свободни позиции:
               </span>
 
               <div className="grid grid-cols-2 gap-2.5">
+                {/* Отбор НИЕ */}
                 <div className="flex flex-col gap-2 p-2.5 bg-[#0d1e2b] rounded-xl border border-emerald-500/50">
                   <span className="text-[11px] font-black text-emerald-400 uppercase">Отбор „НИЕ“</span>
                   <button
-                    disabled={!playerName.trim()}
+                    disabled={!playerName.trim() || seats.SOUTH.isTaken}
                     onClick={() => joinTable('SOUTH')}
-                    className="py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-bold text-xs cursor-pointer active:scale-95 transition-all truncate px-1"
+                    className={`py-2 text-white rounded-lg font-bold text-xs transition-all truncate px-1 ${
+                      seats.SOUTH.isTaken
+                        ? 'bg-slate-700 opacity-50 cursor-not-allowed'
+                        : 'bg-emerald-700 hover:bg-emerald-600 cursor-pointer active:scale-95'
+                    }`}
                   >
-                    ЮГ ({seats.SOUTH?.isBot ? 'Свободно' : seats.SOUTH?.name})
+                    ЮГ ({seats.SOUTH.isTaken ? seats.SOUTH.name : 'Свободно'})
                   </button>
                   <button
-                    disabled={!playerName.trim()}
+                    disabled={!playerName.trim() || seats.NORTH.isTaken}
                     onClick={() => joinTable('NORTH')}
-                    className="py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-bold text-xs cursor-pointer active:scale-95 transition-all truncate px-1"
+                    className={`py-2 text-white rounded-lg font-bold text-xs transition-all truncate px-1 ${
+                      seats.NORTH.isTaken
+                        ? 'bg-slate-700 opacity-50 cursor-not-allowed'
+                        : 'bg-emerald-700 hover:bg-emerald-600 cursor-pointer active:scale-95'
+                    }`}
                   >
-                    СЕВЕР ({seats.NORTH?.isBot ? 'Свободно' : seats.NORTH?.name})
+                    СЕВЕР ({seats.NORTH.isTaken ? seats.NORTH.name : 'Свободно'})
                   </button>
                 </div>
 
+                {/* Отбор ВИЕ */}
                 <div className="flex flex-col gap-2 p-2.5 bg-[#0d1e2b] rounded-xl border border-rose-500/50">
                   <span className="text-[11px] font-black text-rose-400 uppercase">Отбор „ВИЕ“</span>
                   <button
-                    disabled={!playerName.trim()}
+                    disabled={!playerName.trim() || seats.EAST.isTaken}
                     onClick={() => joinTable('EAST')}
-                    className="py-2 bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white rounded-lg font-bold text-xs cursor-pointer active:scale-95 transition-all truncate px-1"
+                    className={`py-2 text-white rounded-lg font-bold text-xs transition-all truncate px-1 ${
+                      seats.EAST.isTaken
+                        ? 'bg-slate-700 opacity-50 cursor-not-allowed'
+                        : 'bg-rose-700 hover:bg-rose-600 cursor-pointer active:scale-95'
+                    }`}
                   >
-                    ИЗТОК ({seats.EAST?.isBot ? 'Свободно' : seats.EAST?.name})
+                    ИЗТОК ({seats.EAST.isTaken ? seats.EAST.name : 'Свободно'})
                   </button>
                   <button
-                    disabled={!playerName.trim()}
+                    disabled={!playerName.trim() || seats.WEST.isTaken}
                     onClick={() => joinTable('WEST')}
-                    className="py-2 bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white rounded-lg font-bold text-xs cursor-pointer active:scale-95 transition-all truncate px-1"
+                    className={`py-2 text-white rounded-lg font-bold text-xs transition-all truncate px-1 ${
+                      seats.WEST.isTaken
+                        ? 'bg-slate-700 opacity-50 cursor-not-allowed'
+                        : 'bg-rose-700 hover:bg-rose-600 cursor-pointer active:scale-95'
+                    }`}
                   >
-                    ЗАПАД ({seats.WEST?.isBot ? 'Свободно' : seats.WEST?.name})
+                    ЗАПАД ({seats.WEST.isTaken ? seats.WEST.name : 'Свободно'})
                   </button>
                 </div>
               </div>
@@ -470,7 +508,7 @@ export function App() {
         </div>
       )}
 
-      {/* Резултати горе вляво */}
+      {/* Резултати */}
       <div className="absolute top-2 left-2 sm:top-4 sm:left-6 z-30 flex items-center gap-2 scale-90 sm:scale-100 origin-top-left">
         <div className="bg-[#0f2434]/95 border border-[#1f4e70] rounded-xl px-3 py-1.5 shadow-xl flex items-center gap-4">
           <div className="flex flex-col items-center">
@@ -496,7 +534,7 @@ export function App() {
         )}
       </div>
 
-      {/* Адаптивна маса */}
+      {/* Маса */}
       <main className="flex-1 relative flex items-center justify-center p-1 sm:p-4">
         <div className="relative w-full max-w-[1040px] h-[92vh] max-h-[700px] bg-[#23587c] rounded-[48px] sm:rounded-[180px] border-[8px] sm:border-[18px] border-[#163a52] shadow-2xl flex flex-col justify-between p-2 sm:p-6 ring-2 sm:ring-4 ring-[#0d2230]/40">
 
@@ -508,9 +546,9 @@ export function App() {
               </div>
             )}
             <div className={`w-12 h-12 sm:w-16 sm:h-16 rounded-xl border flex flex-col items-center justify-center shadow-lg transition-all ${gameState?.currentPlayer === 'NORTH' ? 'border-amber-400 bg-amber-400/20 scale-105' : 'border-[#143952] bg-[#0f283a]'}`}>
-              <span className="text-base sm:text-xl">{seats.NORTH?.isBot ? '🤖' : '👤'}</span>
+              <span className="text-base sm:text-xl">{seats.NORTH.isBot ? '🤖' : '👤'}</span>
               <span className="text-[9px] font-bold text-slate-200 truncate max-w-[45px] sm:max-w-[60px]">
-                {seats.NORTH?.name}
+                {seats.NORTH.name}
               </span>
             </div>
             {gameState?.phase !== 'CUTTING' && (
@@ -533,9 +571,9 @@ export function App() {
                 </div>
               )}
               <div className={`w-12 h-12 sm:w-16 sm:h-16 rounded-xl border flex flex-col items-center justify-center shadow-lg transition-all ${gameState?.currentPlayer === 'WEST' ? 'border-amber-400 bg-amber-400/20 scale-105' : 'border-[#143952] bg-[#0f283a]'}`}>
-                <span className="text-base sm:text-xl">{seats.WEST?.isBot ? '👾' : '👤'}</span>
+                <span className="text-base sm:text-xl">{seats.WEST.isBot ? '👾' : '👤'}</span>
                 <span className="text-[9px] font-bold text-slate-200 truncate max-w-[45px] sm:max-w-[60px]">
-                  {seats.WEST?.name}
+                  {seats.WEST.name}
                 </span>
               </div>
               {gameState?.phase !== 'CUTTING' && (
@@ -547,10 +585,9 @@ export function App() {
               )}
             </div>
 
-            {/* Център на масата */}
+            {/* Център */}
             <div className="relative flex-1 h-[220px] sm:h-[300px] flex items-center justify-center">
 
-              {/* Цепене */}
               {gameState?.phase === 'CUTTING' && (
                 <div className="flex flex-col items-center gap-2 w-full">
                   <span className="text-sm sm:text-xl font-black text-white uppercase">
@@ -592,7 +629,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Взятката в центъра */}
+              {/* Взятка */}
               {gameState?.phase !== 'CUTTING' && (
                 <div className="w-full h-full relative flex items-center justify-center">
                   {gameState?.currentTrickCards?.map((tc: any, idx: number) => {
@@ -644,7 +681,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Панел за анонсиране */}
+              {/* Панел за наддаване */}
               {isMyTurnToBid && (
                 <div className="absolute z-40 bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-300 p-2 sm:p-3.5 flex flex-col items-center gap-2 animate-in zoom-in-90 max-w-[280px] sm:max-w-[320px]">
                   <div className="grid grid-cols-2 gap-1.5 sm:gap-2 w-full">
@@ -683,9 +720,9 @@ export function App() {
                 </div>
               )}
               <div className={`w-12 h-12 sm:w-16 sm:h-16 rounded-xl border flex flex-col items-center justify-center shadow-lg transition-all ${gameState?.currentPlayer === 'EAST' ? 'border-amber-400 bg-amber-400/20 scale-105' : 'border-[#143952] bg-[#0f283a]'}`}>
-                <span className="text-base sm:text-xl">{seats.EAST?.isBot ? '🤖' : '👤'}</span>
+                <span className="text-base sm:text-xl">{seats.EAST.isBot ? '🤖' : '👤'}</span>
                 <span className="text-[9px] font-bold text-slate-200 mt-0.5 truncate max-w-[45px] sm:max-w-[60px]">
-                  {seats.EAST?.name}
+                  {seats.EAST.name}
                 </span>
               </div>
               {gameState?.phase !== 'CUTTING' && (
@@ -699,16 +736,16 @@ export function App() {
 
           </div>
 
-          {/* Юг (Твоята ръка на телефона) */}
+          {/* Твоята ръка на избраната позиция */}
           <div className="flex flex-col items-center relative mb-1">
-            {speechBubbles[activeMyPos] && (
+            {myPosition && speechBubbles[myPosition] && (
               <div className="absolute -top-8 px-3 py-1 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
-                {speechBubbles[activeMyPos]}
+                {speechBubbles[myPosition]}
               </div>
             )}
 
-            {/* Бутон за сортиране */}
-            {gameState?.phase !== 'CUTTING' && gameState?.myHand && gameState.myHand.length > 0 && (
+            {/* Сортиране */}
+            {hasJoined && gameState?.phase !== 'CUTTING' && gameState?.myHand && gameState.myHand.length > 0 && (
               <div className="mb-1 z-20">
                 <button
                   onClick={() => setSortDescending(!sortDescending)}
@@ -719,8 +756,8 @@ export function App() {
               </div>
             )}
 
-            {/* Ветрило с адаптивни карти */}
-            {gameState?.phase !== 'CUTTING' && (
+            {/* Картите в ръката */}
+            {hasJoined && gameState?.phase !== 'CUTTING' && (
               <div className="flex justify-center items-end h-28 sm:h-40 mb-1 sm:mb-2 relative w-full overflow-visible">
                 {sortedMyHand.map((c: Card, idx: number) => {
                   const total = sortedMyHand.length;
@@ -765,7 +802,7 @@ export function App() {
             )}
 
             <div className={`px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-black shadow ${isMyTurnToPlay ? 'bg-amber-400 text-slate-950 scale-105' : 'bg-[#0f2434] text-slate-200 border border-slate-700'}`}>
-              {seats[activeMyPos]?.name || 'Ти'} ({activeMyPos})
+              {hasJoined ? `${playerName} (${myPosition})` : 'Изчаква избор...'}
             </div>
           </div>
 
