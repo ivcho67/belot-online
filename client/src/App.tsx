@@ -76,19 +76,6 @@ export function App() {
   const [hasPromptedDeclarations, setHasPromptedDeclarations] = useState(false);
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-
-  // Уникален ID на устройството
-  const socketIdRef = useRef<string>(
-    (() => {
-      let id = sessionStorage.getItem('belot_device_id');
-      if (!id) {
-        id = 'dev_' + Math.random().toString(36).substr(2, 9);
-        sessionStorage.setItem('belot_device_id', id);
-      }
-      return id;
-    })()
-  );
-
   const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -140,8 +127,6 @@ export function App() {
             });
           }, 2400);
         }
-      } else if (data.type === 'SEAT_TAKEN_ERROR') {
-        alert(data.message);
       }
     };
 
@@ -158,7 +143,7 @@ export function App() {
     }
   }, [gameState?.phase]);
 
-  // Обяви при 1-ва взятка
+  // Декларации при първа взятка
   useEffect(() => {
     if (!gameState || gameState.phase !== 'PLAYING' || hasPromptedDeclarations) return;
     if (gameState.currentTrickNumber !== 1) return;
@@ -239,11 +224,7 @@ export function App() {
     socketRef.current?.send(
       JSON.stringify({
         type: 'JOIN_SEAT',
-        payload: { 
-          name: playerName.trim(), 
-          position: pos, 
-          socketId: socketIdRef.current 
-        },
+        payload: { name: playerName.trim(), position: pos },
       })
     );
   };
@@ -419,12 +400,12 @@ export function App() {
   };
 
   const cardSpacing = isMobile ? 32 : 52;
-  const activeDisplayPos = myPosition || 'SOUTH';
+  const activeMyName = myPosition ? seats[myPosition]?.name : playerName;
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#132f42] select-none overflow-hidden font-sans relative">
       
-      {/* ЛОБИ ПРОЗОРЕЦ: Заетите места се заключват за други устройства */}
+      {/* ЛОБИ ПРОЗОРЕЦ */}
       {!hasJoined && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
           <div className="w-full max-w-md bg-[#102534] border-2 border-amber-500 rounded-3xl p-5 shadow-2xl flex flex-col gap-4 text-white">
@@ -449,7 +430,6 @@ export function App() {
               </span>
 
               <div className="grid grid-cols-2 gap-2.5">
-                {/* Отбор НИЕ */}
                 <div className="flex flex-col gap-2 p-2.5 bg-[#0d1e2b] rounded-xl border border-emerald-500/50">
                   <span className="text-[11px] font-black text-emerald-400 uppercase">Отбор „НИЕ“</span>
                   <button
@@ -476,7 +456,6 @@ export function App() {
                   </button>
                 </div>
 
-                {/* Отбор ВИЕ */}
                 <div className="flex flex-col gap-2 p-2.5 bg-[#0d1e2b] rounded-xl border border-rose-500/50">
                   <span className="text-[11px] font-black text-rose-400 uppercase">Отбор „ВИЕ“</span>
                   <button
@@ -736,7 +715,7 @@ export function App() {
 
           </div>
 
-          {/* Твоята ръка на избраната позиция */}
+          {/* Твоята ръка (на избраната позиция: WEST, NORTH, EAST или SOUTH) */}
           <div className="flex flex-col items-center relative mb-1">
             {myPosition && speechBubbles[myPosition] && (
               <div className="absolute -top-8 px-3 py-1 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
@@ -756,7 +735,7 @@ export function App() {
               </div>
             )}
 
-            {/* Картите в ръката */}
+            {/* Ветрило с картите за ТВОЯТА позиция */}
             {hasJoined && gameState?.phase !== 'CUTTING' && (
               <div className="flex justify-center items-end h-28 sm:h-40 mb-1 sm:mb-2 relative w-full overflow-visible">
                 {sortedMyHand.map((c: Card, idx: number) => {
@@ -802,13 +781,13 @@ export function App() {
             )}
 
             <div className={`px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-black shadow ${isMyTurnToPlay ? 'bg-amber-400 text-slate-950 scale-105' : 'bg-[#0f2434] text-slate-200 border border-slate-700'}`}>
-              {hasJoined ? `${playerName} (${myPosition})` : 'Изчаква избор...'}
+              {hasJoined ? `${activeMyName} (${myPosition})` : 'Изчаква избор...'}
             </div>
           </div>
 
         </div>
 
-        {/* Модал за декларации */}
+        {/* Модал декларации */}
         {showDeclarationModal && availableDeclarations.length > 0 && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
             <div className="w-full max-w-sm bg-[#12283a] border-2 border-amber-500/80 rounded-2xl shadow-2xl p-4 flex flex-col gap-3 text-white">
