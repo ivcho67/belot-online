@@ -24,6 +24,8 @@ export interface DeclarationItem {
 
 export interface RoundSummary {
   contractTitle: string;
+  declarerName: string;
+  declarerPosition: PlayerPosition;
   belotPointsNS: number;
   belotPointsEW: number;
   declarationsNS: { label: string; points: number }[];
@@ -417,7 +419,8 @@ class BelotRoom {
 
   private finalizeRound() {
     this.phase = 'ROUND_OVER';
-    const declarer = this.auction.declarer!;
+    const declarer = this.auction.declarer || 'SOUTH';
+    const declarerName = this.seats[declarer]?.name || declarer;
     const declarerIsNS = (declarer === 'SOUTH' || declarer === 'NORTH');
     const contract = this.auction.currentContract!;
 
@@ -519,7 +522,9 @@ class BelotRoom {
     };
 
     this.roundSummary = {
-      contractTitle: `${CONTRACT_TITLES[contract || 'ALL_TRUMP']} (${declarerIsNS ? 'НИЕ' : 'ВИЕ'})`,
+      contractTitle: `${CONTRACT_TITLES[contract || 'ALL_TRUMP']}`,
+      declarerName,
+      declarerPosition: declarer,
       belotPointsNS: belotNS,
       belotPointsEW: belotEW,
       declarationsNS: declsNSFormatted,
@@ -559,6 +564,7 @@ class BelotRoom {
       currentPlayer: this.currentPlayer,
       auction: this.auction,
       declarer: this.auction.declarer,
+      declarerName: this.auction.declarer ? this.seats[this.auction.declarer]?.name : undefined,
       myHand: targetPosition ? (this.hands[targetPosition] || []) : [],
       handsOverview: {
         NORTH: { cardCount: this.hands.NORTH.length },
@@ -621,14 +627,10 @@ function handleBotNextAction(room: BelotRoom) {
   if (room.isResolvingTrick || room.phase === 'ROUND_OVER' || room.phase === 'LOBBY') return;
 
   const currentSeat = room.seats[room.currentPlayer];
-  // AKO NA TOVA MQSTO SEDI CHOVEK - BOTUT E NAPULNO BLOKIRAN!
-  if (!currentSeat.isBot) {
-    return;
-  }
+  if (!currentSeat.isBot) return;
 
   if (room.phase === 'CUTTING') {
     room.botActionTimer = setTimeout(() => {
-      // Dvoina proverka predi hod dali chovek ne e sednal v tozi moment
       if (room.seats[room.cutter].isBot) {
         room.cutDeck(16);
         broadcastRoom(room.roomId);
@@ -707,30 +709,24 @@ wss.on('connection', ws => {
         case 'JOIN_SEAT': {
           const { name, position } = data.payload as { name: string; position: PlayerPosition };
 
-          // Zashchita: Ako sedalkata veche ima chovek i tova ne e sushtiq klient
           if (!room.seats[position].isBot && room.seats[position].ws !== ws) {
             ws.send(JSON.stringify({ type: 'SEAT_TAKEN_ERROR', message: 'Мястото вече е заето от друг играч!' }));
             return;
           }
 
-          // Ako predi tova klientut e sedql na drugo mqsto, go osvobozhdavame
           const prev = clientToPosition.get(ws);
           if (prev && prev !== position) {
             room.seats[prev] = { name: 'Свободно', isBot: true };
           }
 
-          // Nastanyavame igracha i GARANTIRANO ZALYUCHVAME BOTA
           room.seats[position] = { 
             name: name.trim() || 'Играч', 
             isBot: false, 
             ws 
           };
           clientToPosition.set(ws, position);
-          
-          // Anulirame bot timer-a vednaga
           room.cancelBotAction();
 
-          // Zapochvame igra samo ako e v faza LOBBY
           if (room.phase === 'LOBBY') {
             room.startNewRound();
           }

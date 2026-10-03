@@ -148,7 +148,6 @@ export function App() {
     }
   }, [gameState?.phase]);
 
-  // Smenqne na staq
   const switchRoom = (targetRoom: string) => {
     const r = (targetRoom || 'PUBLIC').toUpperCase().trim();
     setCurrentRoomId(r);
@@ -162,7 +161,6 @@ export function App() {
     );
   };
 
-  // Sedane na myasto
   const joinTable = (pos: PlayerPosition) => {
     if (!playerName.trim()) return;
     localStorage.setItem('belot_name', playerName.trim());
@@ -177,7 +175,6 @@ export function App() {
     );
   };
 
-  // Obyavi pri 1-va vzyatka
   useEffect(() => {
     if (!gameState || gameState.phase !== 'PLAYING' || hasPromptedDeclarations) return;
     if (gameState.currentTrickNumber !== 1) return;
@@ -425,7 +422,7 @@ export function App() {
   return (
     <div className="flex flex-col h-screen w-screen bg-[#132f42] select-none overflow-hidden font-sans relative">
       
-      {/* LOBBY MODAL: Publichna ili chastna staq s kod */}
+      {/* LOBBY MODAL: Staite & izbornik */}
       {!hasJoined && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
           <div className="w-full max-w-md bg-[#102534] border-2 border-amber-500 rounded-3xl p-5 shadow-2xl flex flex-col gap-4 text-white">
@@ -433,7 +430,6 @@ export function App() {
               Belot.bg Multiplayer
             </h1>
 
-            {/* Kod za staq */}
             <div className="flex flex-col gap-1.5 p-3 bg-[#0a1822] rounded-2xl border border-slate-700">
               <span className="text-xs font-bold text-slate-300">Стая / Код:</span>
               <div className="flex gap-2">
@@ -456,7 +452,6 @@ export function App() {
               </span>
             </div>
 
-            {/* Ime */}
             <div className="flex flex-col gap-1">
               <label className="text-xs font-bold text-slate-300">Твоето име:</label>
               <input
@@ -468,7 +463,6 @@ export function App() {
               />
             </div>
 
-            {/* Svobodni sedalki */}
             <div className="flex flex-col gap-2">
               <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
                 Избери свободно място (обновява се веднага):
@@ -534,7 +528,7 @@ export function App() {
         </div>
       )}
 
-      {/* Rezultati i kod na staq gore vlyavo */}
+      {/* Rezultati i informaciya za vdignata igra gore vlyavo */}
       <div className="absolute top-2 left-2 sm:top-4 sm:left-6 z-30 flex items-center gap-2 scale-90 sm:scale-100 origin-top-left">
         <div className="bg-[#0f2434]/95 border border-[#1f4e70] rounded-xl px-3 py-1.5 shadow-xl flex items-center gap-4">
           <div className="flex flex-col items-center">
@@ -549,13 +543,20 @@ export function App() {
         </div>
 
         {gameState?.auction?.currentContract && (
-          <div className="bg-[#0f2434]/95 border border-amber-500 rounded-xl px-2.5 py-1 flex items-center gap-1.5 shadow-xl">
+          <div className="bg-[#0f2434]/95 border border-amber-500 rounded-xl px-2.5 py-1 flex items-center gap-2 shadow-xl">
             <span style={{ color: SUIT_HEX[gameState.auction.currentContract as Suit] || '#f59e0b' }} className="text-lg font-bold">
               {SUIT_SYMBOLS[gameState.auction.currentContract as Suit] || '★'}
             </span>
-            <span className="text-xs font-black text-amber-300 uppercase">
-              {CONTRACT_TITLES[gameState.auction.currentContract]}
-            </span>
+            <div className="flex flex-col">
+              <span className="text-xs font-black text-amber-300 uppercase leading-none">
+                {CONTRACT_TITLES[gameState.auction.currentContract]}
+              </span>
+              {gameState.declarerName && (
+                <span className="text-[9px] font-bold text-slate-300 mt-0.5 leading-none">
+                  Вдигнал: <span className="text-amber-400 font-black">{gameState.declarerName}</span> ({gameState.declarer})
+                </span>
+              )}
+            </div>
           </div>
         )}
 
@@ -659,25 +660,25 @@ export function App() {
                 </div>
               )}
 
-              {/* Vzyatka */}
+              {/* Vzyatka v centara */}
               {gameState?.phase !== 'CUTTING' && (
-                <div className="w-full h-full relative flex items-center justify-center">
+                <div className="w-full h-full relative flex items-center justify-center pointer-events-none">
                   {gameState?.currentTrickCards?.map((tc: any, idx: number) => {
                     let throwAnim = '';
                     let slotOffset = '';
 
                     if (tc.player === 'NORTH') {
                       throwAnim = 'anim-throw-north';
-                      slotOffset = isMobile ? 'translate-y-[-16px] rotate-[-2deg]' : 'translate-y-[-24px] rotate-[-2deg]';
+                      slotOffset = isMobile ? 'translate-y-[-18px] rotate-[-2deg]' : 'translate-y-[-28px] rotate-[-2.5deg]';
                     } else if (tc.player === 'SOUTH') {
                       throwAnim = 'anim-throw-south';
-                      slotOffset = isMobile ? 'translate-y-[16px] rotate-[2deg]' : 'translate-y-[24px] rotate-[2deg]';
+                      slotOffset = isMobile ? 'translate-y-[18px] rotate-[2deg]' : 'translate-y-[28px] rotate-[2.5deg]';
                     } else if (tc.player === 'WEST') {
                       throwAnim = 'anim-throw-west';
-                      slotOffset = isMobile ? 'translate-x-[-18px] rotate-[-5deg]' : 'translate-x-[-28px] rotate-[-5deg]';
+                      slotOffset = isMobile ? 'translate-x-[-20px] rotate-[-5deg]' : 'translate-x-[-32px] rotate-[-5.5deg]';
                     } else if (tc.player === 'EAST') {
                       throwAnim = 'anim-throw-east';
-                      slotOffset = isMobile ? 'translate-x-[18px] rotate-[5deg]' : 'translate-x-[28px] rotate-[5deg]';
+                      slotOffset = isMobile ? 'translate-x-[20px] rotate-[5deg]' : 'translate-x-[32px] rotate-[5.5deg]';
                     }
 
                     const collectAnim = getCollectAnimClass();
@@ -687,18 +688,18 @@ export function App() {
                       <div
                         key={tc.card.id}
                         style={{ zIndex: idx + 10 }}
-                        className={`absolute flex items-center justify-center pointer-events-none ${collectAnim}`}
+                        className={`absolute flex items-center justify-center ${collectAnim}`}
                       >
-                        <div className={`${slotOffset} ${!isCollectingVisual ? throwAnim : ''}`}>
+                        <div className={`${slotOffset} ${!isCollectingVisual ? throwAnim : ''} transition-transform duration-200`}>
                           <div
                             style={{ color: cardColor }}
-                            className="w-16 h-24 sm:w-24 sm:h-36 bg-white rounded-xl sm:rounded-2xl shadow-xl flex flex-col items-center justify-between p-1.5 sm:p-2.5 border border-slate-300"
+                            className="w-16 h-24 sm:w-24 sm:h-36 bg-white rounded-xl sm:rounded-2xl shadow-2xl flex flex-col items-center justify-between p-1.5 sm:p-2.5 border border-slate-300 ring-1 ring-black/10 backface-hidden"
                           >
                             <div className="flex justify-between items-center w-full leading-none font-black text-sm sm:text-xl">
                               <span>{tc.card.rank}</span>
                               <span className="text-xs sm:text-lg">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
                             </div>
-                            <span className="text-3xl sm:text-6xl leading-none my-auto">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
+                            <span className="text-3xl sm:text-6xl leading-none my-auto select-none">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
                             <div className="flex justify-between items-center w-full leading-none font-black text-sm sm:text-xl rotate-180">
                               <span>{tc.card.rank}</span>
                               <span className="text-xs sm:text-lg">{SUIT_SYMBOLS[tc.card.suit as Suit]}</span>
@@ -751,7 +752,7 @@ export function App() {
               )}
               <div className={`w-12 h-12 sm:w-16 sm:h-16 rounded-xl border flex flex-col items-center justify-center shadow-lg transition-all ${gameState?.currentPlayer === 'EAST' ? 'border-amber-400 bg-amber-400/20 scale-105' : 'border-[#143952] bg-[#0f283a]'}`}>
                 <span className="text-base sm:text-xl">{seats.EAST.isBot ? '🤖' : '👤'}</span>
-                <span className="text-[9px] font-bold text-slate-200 mt-0.5 truncate max-w-[45px] sm:max-w-[60px]">
+                <span className="text-[9px] font-bold text-slate-200 truncate max-w-[45px] sm:max-w-[60px]">
                   {seats.EAST.name}
                 </span>
               </div>
@@ -896,7 +897,12 @@ export function App() {
                 <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center shadow">
                   <span className="text-sm font-black text-red-600">J</span>
                 </div>
-                <span className="text-sm sm:text-base font-black text-white uppercase">{summary.contractTitle}</span>
+                <div className="flex flex-col items-center">
+                  <span className="text-sm sm:text-base font-black text-white uppercase">{summary.contractTitle}</span>
+                  <span className="text-[10px] text-amber-400 font-bold">
+                    Вдигнал: {summary.declarerName} ({summary.declarerPosition === 'SOUTH' || summary.declarerPosition === 'NORTH' ? 'НИЕ' : 'ВИЕ'})
+                  </span>
+                </div>
               </div>
 
               <div className="grid grid-cols-12 px-4 sm:px-6 pt-3 pb-1 text-amber-400 font-black text-xs sm:text-sm">
