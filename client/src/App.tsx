@@ -59,6 +59,8 @@ const SEQUENCE_ORDER: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
 export function App() {
   const [gameState, setGameState] = useState<any>(null);
+  const [roomIdInput, setRoomIdInput] = useState('PUBLIC');
+  const [currentRoomId, setCurrentRoomId] = useState('PUBLIC');
   const [myPosition, setMyPosition] = useState<PlayerPosition | null>(null);
   const [playerName, setPlayerName] = useState(() => localStorage.getItem('belot_name') || '');
   const [hasJoined, setHasJoined] = useState(false);
@@ -96,6 +98,7 @@ export function App() {
       if (data.type === 'GAME_STATE_UPDATE') {
         const payload = data.payload;
         setGameState(payload);
+        if (payload.roomId) setCurrentRoomId(payload.roomId);
 
         if (payload.myPosition) {
           setMyPosition(payload.myPosition);
@@ -127,6 +130,8 @@ export function App() {
             });
           }, 2400);
         }
+      } else if (data.type === 'SEAT_TAKEN_ERROR') {
+        alert(data.message);
       }
     };
 
@@ -143,7 +148,36 @@ export function App() {
     }
   }, [gameState?.phase]);
 
-  // Декларации при първа взятка
+  // Smenqne na staq
+  const switchRoom = (targetRoom: string) => {
+    const r = (targetRoom || 'PUBLIC').toUpperCase().trim();
+    setCurrentRoomId(r);
+    setMyPosition(null);
+    setHasJoined(false);
+    socketRef.current?.send(
+      JSON.stringify({
+        type: 'JOIN_ROOM',
+        payload: { roomId: r }
+      })
+    );
+  };
+
+  // Sedane na myasto
+  const joinTable = (pos: PlayerPosition) => {
+    if (!playerName.trim()) return;
+    localStorage.setItem('belot_name', playerName.trim());
+    setMyPosition(pos);
+    setHasJoined(true);
+
+    socketRef.current?.send(
+      JSON.stringify({
+        type: 'JOIN_SEAT',
+        payload: { name: playerName.trim(), position: pos },
+      })
+    );
+  };
+
+  // Obyavi pri 1-va vzyatka
   useEffect(() => {
     if (!gameState || gameState.phase !== 'PLAYING' || hasPromptedDeclarations) return;
     if (gameState.currentTrickNumber !== 1) return;
@@ -214,20 +248,6 @@ export function App() {
       setHasPromptedDeclarations(true);
     }
   }, [gameState?.phase, gameState?.currentTrickNumber, gameState?.myHand, hasPromptedDeclarations, gameState?.auction?.currentContract]);
-
-  const joinTable = (pos: PlayerPosition) => {
-    if (!playerName.trim()) return;
-    localStorage.setItem('belot_name', playerName.trim());
-    setMyPosition(pos);
-    setHasJoined(true);
-
-    socketRef.current?.send(
-      JSON.stringify({
-        type: 'JOIN_SEAT',
-        payload: { name: playerName.trim(), position: pos },
-      })
-    );
-  };
 
   const confirmDeclarations = () => {
     setShowDeclarationModal(false);
@@ -405,32 +425,58 @@ export function App() {
   return (
     <div className="flex flex-col h-screen w-screen bg-[#132f42] select-none overflow-hidden font-sans relative">
       
-      {/* ЛОБИ ПРОЗОРЕЦ */}
+      {/* LOBBY MODAL: Publichna ili chastna staq s kod */}
       {!hasJoined && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
           <div className="w-full max-w-md bg-[#102534] border-2 border-amber-500 rounded-3xl p-5 shadow-2xl flex flex-col gap-4 text-white">
             <h1 className="text-xl sm:text-2xl font-black text-center tracking-wider text-amber-400 uppercase">
-              Избери своето място
+              Belot.bg Multiplayer
             </h1>
 
+            {/* Kod za staq */}
+            <div className="flex flex-col gap-1.5 p-3 bg-[#0a1822] rounded-2xl border border-slate-700">
+              <span className="text-xs font-bold text-slate-300">Стая / Код:</span>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={roomIdInput}
+                  onChange={e => setRoomIdInput(e.target.value.toUpperCase())}
+                  placeholder="PUBLIC или код (напр. 4242)"
+                  className="flex-1 px-3 py-1.5 bg-[#122432] border border-slate-600 rounded-xl text-white font-mono font-bold text-sm outline-none focus:border-amber-400"
+                />
+                <button
+                  onClick={() => switchRoom(roomIdInput)}
+                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow cursor-pointer active:scale-95"
+                >
+                  Влез
+                </button>
+              </div>
+              <span className="text-[10px] text-slate-400">
+                Текуща стая: <strong className="text-amber-400 font-mono">{currentRoomId}</strong>
+              </span>
+            </div>
+
+            {/* Ime */}
             <div className="flex flex-col gap-1">
               <label className="text-xs font-bold text-slate-300">Твоето име:</label>
               <input
                 type="text"
                 value={playerName}
                 onChange={e => setPlayerName(e.target.value)}
-                placeholder="Въведи псевдоним"
+                placeholder="Въведи име (напр. Ивайло)"
                 className="px-3.5 py-2 bg-[#0a1822] border border-slate-700 rounded-xl text-white font-bold outline-none focus:border-amber-400 text-sm"
               />
             </div>
 
-            <div className="flex flex-col gap-2.5">
+            {/* Svobodni sedalki */}
+            <div className="flex flex-col gap-2">
               <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                Свободни позиции:
+                Избери свободно място (обновява се веднага):
               </span>
 
-              <div className="grid grid-cols-2 gap-2.5">
-                <div className="flex flex-col gap-2 p-2.5 bg-[#0d1e2b] rounded-xl border border-emerald-500/50">
+              <div className="grid grid-cols-2 gap-2">
+                {/* NIE */}
+                <div className="flex flex-col gap-1.5 p-2.5 bg-[#0d1e2b] rounded-xl border border-emerald-500/50">
                   <span className="text-[11px] font-black text-emerald-400 uppercase">Отбор „НИЕ“</span>
                   <button
                     disabled={!playerName.trim() || seats.SOUTH.isTaken}
@@ -456,7 +502,8 @@ export function App() {
                   </button>
                 </div>
 
-                <div className="flex flex-col gap-2 p-2.5 bg-[#0d1e2b] rounded-xl border border-rose-500/50">
+                {/* VIE */}
+                <div className="flex flex-col gap-1.5 p-2.5 bg-[#0d1e2b] rounded-xl border border-rose-500/50">
                   <span className="text-[11px] font-black text-rose-400 uppercase">Отбор „ВИЕ“</span>
                   <button
                     disabled={!playerName.trim() || seats.EAST.isTaken}
@@ -487,7 +534,7 @@ export function App() {
         </div>
       )}
 
-      {/* Резултати */}
+      {/* Rezultati i kod na staq gore vlyavo */}
       <div className="absolute top-2 left-2 sm:top-4 sm:left-6 z-30 flex items-center gap-2 scale-90 sm:scale-100 origin-top-left">
         <div className="bg-[#0f2434]/95 border border-[#1f4e70] rounded-xl px-3 py-1.5 shadow-xl flex items-center gap-4">
           <div className="flex flex-col items-center">
@@ -511,13 +558,17 @@ export function App() {
             </span>
           </div>
         )}
+
+        <div className="bg-[#081722]/90 border border-slate-700 px-2.5 py-1 rounded-xl text-xs font-mono font-bold text-amber-400">
+          #{currentRoomId}
+        </div>
       </div>
 
-      {/* Маса */}
+      {/* Masata */}
       <main className="flex-1 relative flex items-center justify-center p-1 sm:p-4">
         <div className="relative w-full max-w-[1040px] h-[92vh] max-h-[700px] bg-[#23587c] rounded-[48px] sm:rounded-[180px] border-[8px] sm:border-[18px] border-[#163a52] shadow-2xl flex flex-col justify-between p-2 sm:p-6 ring-2 sm:ring-4 ring-[#0d2230]/40">
 
-          {/* Север */}
+          {/* Sever */}
           <div className="flex flex-col items-center relative mt-1">
             {speechBubbles['NORTH'] && (
               <div className="absolute -top-8 px-3 py-1 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
@@ -539,10 +590,10 @@ export function App() {
             )}
           </div>
 
-          {/* Среден ред: Запад, Център, Изток */}
+          {/* Sredna liniya */}
           <div className="flex justify-between items-center w-full px-1 sm:px-4">
             
-            {/* Запад */}
+            {/* Zapad */}
             <div className="flex flex-col items-center relative w-16 sm:w-24">
               {speechBubbles['WEST'] && (
                 <div className="absolute -top-8 px-2 py-0.5 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
@@ -564,7 +615,7 @@ export function App() {
               )}
             </div>
 
-            {/* Център */}
+            {/* Centar */}
             <div className="relative flex-1 h-[220px] sm:h-[300px] flex items-center justify-center">
 
               {gameState?.phase === 'CUTTING' && (
@@ -601,14 +652,14 @@ export function App() {
                 </div>
               )}
 
-              {/* Дясно тесте */}
+              {/* Dqsno teste */}
               {gameState?.phase !== 'CUTTING' && (
                 <div className="absolute right-0 sm:right-2 top-1/2 -translate-y-1/2 w-10 h-16 sm:w-16 sm:h-24 bg-[#102d42] rounded-xl border border-blue-400/50 shadow flex items-center justify-center pointer-events-none opacity-80 z-10">
                   <span className="text-sm sm:text-2xl text-blue-300/40 font-bold">♠</span>
                 </div>
               )}
 
-              {/* Взятка */}
+              {/* Vzyatka */}
               {gameState?.phase !== 'CUTTING' && (
                 <div className="w-full h-full relative flex items-center justify-center">
                   {gameState?.currentTrickCards?.map((tc: any, idx: number) => {
@@ -660,7 +711,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Панел за наддаване */}
+              {/* Naddavane */}
               {isMyTurnToBid && (
                 <div className="absolute z-40 bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-300 p-2 sm:p-3.5 flex flex-col items-center gap-2 animate-in zoom-in-90 max-w-[280px] sm:max-w-[320px]">
                   <div className="grid grid-cols-2 gap-1.5 sm:gap-2 w-full">
@@ -691,7 +742,7 @@ export function App() {
 
             </div>
 
-            {/* Изток */}
+            {/* Iztok */}
             <div className="flex flex-col items-center relative w-16 sm:w-24">
               {speechBubbles['EAST'] && (
                 <div className="absolute -top-8 px-2 py-0.5 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
@@ -715,7 +766,7 @@ export function App() {
 
           </div>
 
-          {/* Твоята ръка (на избраната позиция: WEST, NORTH, EAST или SOUTH) */}
+          {/* Tvoyata ruka dolu */}
           <div className="flex flex-col items-center relative mb-1">
             {myPosition && speechBubbles[myPosition] && (
               <div className="absolute -top-8 px-3 py-1 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
@@ -723,7 +774,7 @@ export function App() {
               </div>
             )}
 
-            {/* Сортиране */}
+            {/* Sortirane */}
             {hasJoined && gameState?.phase !== 'CUTTING' && gameState?.myHand && gameState.myHand.length > 0 && (
               <div className="mb-1 z-20">
                 <button
@@ -735,7 +786,7 @@ export function App() {
               </div>
             )}
 
-            {/* Ветрило с картите за ТВОЯТА позиция */}
+            {/* Kartite na tvoeto mqsto */}
             {hasJoined && gameState?.phase !== 'CUTTING' && (
               <div className="flex justify-center items-end h-28 sm:h-40 mb-1 sm:mb-2 relative w-full overflow-visible">
                 {sortedMyHand.map((c: Card, idx: number) => {
@@ -787,7 +838,7 @@ export function App() {
 
         </div>
 
-        {/* Модал декларации */}
+        {/* Modal deklaracii */}
         {showDeclarationModal && availableDeclarations.length > 0 && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
             <div className="w-full max-w-sm bg-[#12283a] border-2 border-amber-500/80 rounded-2xl shadow-2xl p-4 flex flex-col gap-3 text-white">
@@ -836,7 +887,7 @@ export function App() {
           </div>
         )}
 
-        {/* Табло край на рунда */}
+        {/* Tablo krai na runda */}
         {gameState?.phase === 'ROUND_OVER' && summary && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-3">
             <div className="w-full max-w-sm sm:max-w-md bg-[#0c1824] border-2 border-amber-500/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100 scale-95 sm:scale-100">

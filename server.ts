@@ -69,7 +69,8 @@ const NON_TRUMP_VALUES: Record<Rank, number> = {
   '7': 0, '8': 0, '9': 0, 'J': 2, 'Q': 3, 'K': 4, '10': 10, 'A': 11
 };
 
-class SharedBelotRoom {
+class BelotRoom {
+  public roomId: string;
   public phase: GamePhase = 'LOBBY';
   public seats: Record<PlayerPosition, SeatInfo> = {
     SOUTH: { name: 'Свободно', isBot: true },
@@ -104,6 +105,10 @@ class SharedBelotRoom {
   public submittedDeclarations: { player: PlayerPosition; item: DeclarationItem }[] = [];
   public roundSummary: RoundSummary | null = null;
   public botActionTimer: NodeJS.Timeout | null = null;
+
+  constructor(roomId: string) {
+    this.roomId = roomId;
+  }
 
   public cancelBotAction() {
     if (this.botActionTimer) {
@@ -405,7 +410,7 @@ class SharedBelotRoom {
         this.finalizeRound();
       } else {
         this.currentTrickNumber++;
-        broadcastState();
+        broadcastRoom(this.roomId);
       }
     }, 2200);
   }
@@ -501,6 +506,14 @@ class SharedBelotRoom {
       outcomeText = 'ВИСЯЩИ ТОЧКИ';
     }
 
+    if (this.auction.multiplier === 'CONTRA') {
+      scoreNS *= 2;
+      scoreEW *= 2;
+    } else if (this.auction.multiplier === 'RECONTRA') {
+      scoreNS *= 4;
+      scoreEW *= 4;
+    }
+
     this.scores.NORTH_SOUTH += scoreNS;
     this.scores.EAST_WEST += scoreEW;
 
@@ -528,12 +541,12 @@ class SharedBelotRoom {
       scoreAddedEW: scoreEW,
     };
 
-    broadcastState();
+    broadcastRoom(this.roomId);
 
     setTimeout(() => {
       this.dealer = NEXT_PLAYER[this.dealer];
       this.startNewRound();
-      broadcastState();
+      broadcastRoom(this.roomId);
     }, 8500);
   }
 
@@ -546,6 +559,7 @@ class SharedBelotRoom {
     };
 
     return {
+      roomId: this.roomId,
       phase: this.phase,
       seats: safeSeats,
       dealer: this.dealer,
@@ -574,15 +588,30 @@ class SharedBelotRoom {
 
 const PORT = Number(process.env.PORT) || 8080;
 const wss = new WebSocketServer({ port: PORT });
-const sharedRoom = new SharedBelotRoom();
 
-const socketToPosition = new Map<WebSocket, PlayerPosition>();
+// Upravlenie na lobita
+const rooms = new Map<string, BelotRoom>();
+const clientToRoom = new Map<WebSocket, string>();
+const clientToPosition = new Map<WebSocket, PlayerPosition>();
 
-function broadcastState() {
+function getOrCreateRoom(roomId: string = 'PUBLIC'): BelotRoom {
+  const cleanId = (roomId || 'PUBLIC').toUpperCase().trim();
+  let r = rooms.get(cleanId);
+  if (!r) {
+    r = new BelotRoom(cleanId);
+    rooms.set(cleanId, r);
+  }
+  return r;
+}
+
+function broadcastRoom(roomId: string) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
   wss.clients.forEach(ws => {
-    if (ws.readyState === WebSocket.OPEN) {
-      const pos = socketToPosition.get(ws);
-      const payload = sharedRoom.getPayloadFor(pos);
+    if (ws.readyState === WebSocket.OPEN && clientToRoom.get(ws) === roomId) {
+      const pos = clientToPosition.get(ws);
+      const payload = room.getPayloadFor(pos);
       ws.send(JSON.stringify({ 
         type: 'GAME_STATE_UPDATE', 
         payload: { 
@@ -593,129 +622,153 @@ function broadcastState() {
     }
   });
 
-  handleBotNextAction();
+  handleBotNextAction(room);
 }
 
-function handleBotNextAction() {
-  sharedRoom.cancelBotAction();
-  if (sharedRoom.isResolvingTrick || sharedRoom.phase === 'ROUND_OVER' || sharedRoom.phase === 'LOBBY') return;
+function handleBotNextAction(room: BelotRoom) {
+  room.cancelBotAction();
+  if (room.isResolvingTrick || room.phase === 'ROUND_OVER' || room.phase === 'LOBBY') return;
 
-  const currentSeat = sharedRoom.seats[sharedRoom.currentPlayer];
-  // АКО Е ЧОВЕК, БОТЪТ Е НАПЪЛНО БЛОКИРАН!
+  const currentSeat = room.seats[room.currentPlayer];
+  // AKO E CHOVEK, BOTUT NIKOGA NE SE NAMESVA!
   if (!currentSeat.isBot) return;
 
-  if (sharedRoom.phase === 'CUTTING') {
-    sharedRoom.botActionTimer = setTimeout(() => {
-      sharedRoom.cutDeck(16);
-      broadcastState();
+  if (room.phase === 'CUTTING') {
+    room.botActionTimer = setTimeout(() => {
+      room.cutDeck(16);
+      broadcastRoom(room.roomId);
     }, 1100);
     return;
   }
 
-  if (sharedRoom.phase === 'BIDDING') {
-    sharedRoom.botActionTimer = setTimeout(() => {
-      const hand = sharedRoom.hands[sharedRoom.currentPlayer];
+  if (room.phase === 'BIDDING') {
+    room.botActionTimer = setTimeout(() => {
+      const hand = room.hands[room.currentPlayer];
       const hasJacks = hand.filter(c => c.rank === 'J').length;
       const hasAces = hand.filter(c => c.rank === 'A').length;
 
-      if (!sharedRoom.auction.currentContract && (hasJacks >= 2 || hasAces >= 2)) {
-        sharedRoom.makeBid(sharedRoom.currentPlayer, 'CONTRACT', 'ALL_TRUMP');
+      if (!room.auction.currentContract && (hasJacks >= 2 || hasAces >= 2)) {
+        room.makeBid(room.currentPlayer, 'CONTRACT', 'ALL_TRUMP');
       } else {
-        sharedRoom.makeBid(sharedRoom.currentPlayer, 'PASS');
+        room.makeBid(room.currentPlayer, 'PASS');
       }
-      broadcastState();
+      broadcastRoom(room.roomId);
     }, 1200);
     return;
   }
 
-  if (sharedRoom.phase === 'PLAYING') {
-    sharedRoom.botActionTimer = setTimeout(() => {
-      const botPos = sharedRoom.currentPlayer;
-      const botCards = sharedRoom.hands[botPos];
+  if (room.phase === 'PLAYING') {
+    room.botActionTimer = setTimeout(() => {
+      const botPos = room.currentPlayer;
+      const botCards = room.hands[botPos];
 
       if (!botCards || botCards.length === 0) return;
 
-      const validCards = botCards.filter(c => sharedRoom.isCardValidForPlay(botPos, c));
+      const validCards = botCards.filter(c => room.isCardValidForPlay(botPos, c));
       const chosenCard = validCards.length > 0 ? validCards[0] : botCards[0];
 
-      sharedRoom.playCard(botPos, chosenCard);
-      broadcastState();
+      room.playCard(botPos, chosenCard);
+      broadcastRoom(room.roomId);
     }, 1300);
   }
 }
 
 wss.on('connection', ws => {
-  const payload = sharedRoom.getPayloadFor(undefined);
+  // Po podrazbirane noviqt klient vliza v publichnata staq i poluchava migoven update
+  const defaultRoom = getOrCreateRoom('PUBLIC');
+  clientToRoom.set(ws, 'PUBLIC');
   ws.send(JSON.stringify({ 
     type: 'GAME_STATE_UPDATE', 
-    payload: { ...payload, myPosition: null } 
+    payload: { ...defaultRoom.getPayloadFor(undefined), myPosition: null } 
   }));
 
   ws.on('message', rawMsg => {
     try {
       const data = JSON.parse(rawMsg.toString());
+      const currentRoomId = clientToRoom.get(ws) || 'PUBLIC';
+      const room = getOrCreateRoom(currentRoomId);
 
       switch (data.type) {
+        case 'JOIN_ROOM': {
+          const newRoomId = (data.payload.roomId || 'PUBLIC').toUpperCase().trim();
+          
+          // Osvobozhdavame staro mqsto
+          const oldPos = clientToPosition.get(ws);
+          if (oldPos && room.seats[oldPos].ws === ws) {
+            room.seats[oldPos] = { name: 'Свободно', isBot: true };
+          }
+
+          clientToRoom.set(ws, newRoomId);
+          clientToPosition.delete(ws);
+          const targetRoom = getOrCreateRoom(newRoomId);
+          broadcastRoom(currentRoomId);
+          broadcastRoom(newRoomId);
+          break;
+        }
+
         case 'JOIN_SEAT': {
           const { name, position } = data.payload as { name: string; position: PlayerPosition };
 
-          // Освобождаване на старо място
-          const prev = socketToPosition.get(ws);
-          if (prev && prev !== position) {
-            sharedRoom.seats[prev] = { name: 'Свободно', isBot: true };
+          if (!room.seats[position].isBot && room.seats[position].ws !== ws) {
+            ws.send(JSON.stringify({ type: 'SEAT_TAKEN_ERROR', message: 'Мястото вече е заето от друг играч!' }));
+            return;
           }
 
-          // Настаняване на реалния играч
-          sharedRoom.seats[position] = { 
+          // Osvobozhdavame staro mqsto na tozi socket v sushtata staq
+          const prev = clientToPosition.get(ws);
+          if (prev && prev !== position) {
+            room.seats[prev] = { name: 'Свободно', isBot: true };
+          }
+
+          room.seats[position] = { 
             name: name.trim() || 'Играч', 
             isBot: false, 
             ws 
           };
-          socketToPosition.set(ws, position);
+          clientToPosition.set(ws, position);
+          room.cancelBotAction();
 
-          // Анулираме всякакви активни действия на бота
-          sharedRoom.cancelBotAction();
-
-          if (sharedRoom.phase === 'LOBBY') {
-            sharedRoom.startNewRound();
+          if (room.phase === 'LOBBY') {
+            room.startNewRound();
           }
 
-          broadcastState();
+          // MOMENTEN BROADCAST KYM VSICHKI V STAQTA!
+          broadcastRoom(room.roomId);
           break;
         }
 
         case 'CUT_DECK': {
-          const p = socketToPosition.get(ws);
-          if (p && p === sharedRoom.cutter) {
-            sharedRoom.cutDeck(data.payload.cutIndex);
-            broadcastState();
+          const p = clientToPosition.get(ws);
+          if (p && p === room.cutter) {
+            room.cutDeck(data.payload.cutIndex);
+            broadcastRoom(room.roomId);
           }
           break;
         }
 
         case 'MAKE_BID': {
-          const p = socketToPosition.get(ws);
-          if (p && p === sharedRoom.currentPlayer) {
-            sharedRoom.makeBid(p, data.payload.bidType, data.payload.contract);
-            broadcastState();
+          const p = clientToPosition.get(ws);
+          if (p && p === room.currentPlayer) {
+            room.makeBid(p, data.payload.bidType, data.payload.contract);
+            broadcastRoom(room.roomId);
           }
           break;
         }
 
         case 'SUBMIT_DECLARATIONS': {
-          const p = socketToPosition.get(ws);
+          const p = clientToPosition.get(ws);
           if (p) {
-            sharedRoom.addDeclarations(p, data.payload.declarations);
-            broadcastState();
+            room.addDeclarations(p, data.payload.declarations);
+            broadcastRoom(room.roomId);
           }
           break;
         }
 
         case 'PLAY_CARD': {
-          const p = socketToPosition.get(ws);
-          if (p && p === sharedRoom.currentPlayer) {
-            sharedRoom.playCard(p, data.payload.card);
-            broadcastState();
+          const p = clientToPosition.get(ws);
+          if (p && p === room.currentPlayer) {
+            room.playCard(p, data.payload.card);
+            broadcastRoom(room.roomId);
           }
           break;
         }
@@ -726,14 +779,19 @@ wss.on('connection', ws => {
   });
 
   ws.on('close', () => {
-    const pos = socketToPosition.get(ws);
-    if (pos) {
-      sharedRoom.seats[pos] = { name: 'Свободно', isBot: true };
-      socketToPosition.delete(ws);
-      sharedRoom.cancelBotAction();
-      broadcastState();
+    const roomId = clientToRoom.get(ws);
+    const pos = clientToPosition.get(ws);
+    if (roomId && pos) {
+      const room = rooms.get(roomId);
+      if (room && room.seats[pos].ws === ws) {
+        room.seats[pos] = { name: 'Свободно', isBot: true };
+        room.cancelBotAction();
+        broadcastRoom(roomId);
+      }
     }
+    clientToRoom.delete(ws);
+    clientToPosition.delete(ws);
   });
 });
 
-console.log(`[Dedicated Belot Server] Live on port ${PORT}`);
+console.log(`[Belot Multi-Room Server] Live on port ${PORT}`);
