@@ -13,6 +13,15 @@ export interface Card {
   rank: Rank;
 }
 
+export interface DeclarationItem {
+  id: string;
+  type: string;
+  points: number;
+  label: string;
+  suit: Suit;
+  ranks: string[];
+}
+
 export interface RoundSummary {
   contractTitle: string;
   belotPointsNS: number;
@@ -29,7 +38,7 @@ export interface RoundSummary {
 }
 
 const SUITS: Suit[] = ['CLUBS', 'DIAMONDS', 'HEARTS', 'SPADES'];
-const RANKS: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+const RANKS: Rank[] = ['7', '8', '9', '10', 'J' , 'Q', 'K', 'A'];
 
 const NEXT_PLAYER: Record<PlayerPosition, PlayerPosition> = {
   SOUTH: 'EAST',
@@ -38,7 +47,6 @@ const NEXT_PLAYER: Record<PlayerPosition, PlayerPosition> = {
   WEST: 'SOUTH',
 };
 
-// Tochki pri presmqtane na ruchka
 const TRUMP_VALUES: Record<Rank, number> = {
   '7': 0, '8': 0, 'Q': 3, 'K': 4, '10': 10, 'A': 11, '9': 14, 'J': 20
 };
@@ -47,7 +55,6 @@ const NON_TRUMP_VALUES: Record<Rank, number> = {
   '7': 0, '8': 0, '9': 0, 'J': 2, 'Q': 3, 'K': 4, '10': 10, 'A': 11
 };
 
-// Sila na kartata pri opredelqne na pobeditel
 const TRUMP_POWER: Record<Rank, number> = {
   '7': 0, '8': 1, 'Q': 2, 'K': 3, '10': 4, 'A': 5, '9': 6, 'J': 7
 };
@@ -80,6 +87,7 @@ class BelotGameEngine {
   public isResolvingTrick: boolean = false;
   public trickWinner?: PlayerPosition;
   public lastAction?: { player: PlayerPosition; text: string };
+  public submittedDeclarations: { player: PlayerPosition; item: DeclarationItem }[] = [];
   public roundSummary: RoundSummary | null = null;
 
   constructor() {
@@ -103,6 +111,7 @@ class BelotGameEngine {
     this.isResolvingTrick = false;
     this.trickWinner = undefined;
     this.lastAction = undefined;
+    this.submittedDeclarations = [];
     this.roundSummary = null;
 
     this.phase = 'CUTTING';
@@ -177,9 +186,13 @@ class BelotGameEngine {
     this.currentPlayer = NEXT_PLAYER[this.currentPlayer];
   }
 
-  /**
-   * KANONICHNO OPREDELQNE KOI VZIMA VZYATKATA
-   */
+  public addDeclarations(player: PlayerPosition, items: DeclarationItem[]) {
+    items.forEach(item => {
+      this.submittedDeclarations.push({ player, item });
+      this.lastAction = { player, text: item.label };
+    });
+  }
+
   public getCurrentTrickWinner(): { winner: PlayerPosition; highestPower: number } {
     const contract = this.auction.currentContract!;
     const leadCard = this.currentTrickCards[0].card;
@@ -187,7 +200,6 @@ class BelotGameEngine {
 
     let winner = this.currentTrickCards[0].player;
 
-    // 1. VSICHKO KOZ: Vzima nai-visokata karta ZADULZHITELNO OT POVEDENATA BOYA
     if (contract === 'ALL_TRUMP') {
       let highest = TRUMP_POWER[leadCard.rank];
       for (let i = 1; i < this.currentTrickCards.length; i++) {
@@ -203,7 +215,6 @@ class BelotGameEngine {
       return { winner, highestPower: highest };
     }
 
-    // 2. BEZ KOZ: Vzima nai-visokata karta ZADULZHITELNO OT POVEDENATA BOYA
     if (contract === 'NO_TRUMP') {
       let highest = NON_TRUMP_POWER[leadCard.rank];
       for (let i = 1; i < this.currentTrickCards.length; i++) {
@@ -219,7 +230,6 @@ class BelotGameEngine {
       return { winner, highestPower: highest };
     }
 
-    // 3. IGRA NA BOYA (KOZ)
     const trumpSuit = contract as Suit;
     let highestTrumpPower = -1;
     let hasTrump = false;
@@ -253,9 +263,6 @@ class BelotGameEngine {
     return { winner, highestPower: hasTrump ? highestTrumpPower : highestLeadPower };
   }
 
-  /**
-   * KANONICHNI PRAVILA ZA OTGOVARYANE I CAKANE
-   */
   public isCardValidForPlay(player: PlayerPosition, card: Card): boolean {
     const hand = this.hands[player];
     const contract = this.auction.currentContract!;
@@ -272,13 +279,11 @@ class BelotGameEngine {
       (player === 'EAST' && winner === 'WEST') ||
       (player === 'WEST' && winner === 'EAST');
 
-    // BEZ KOZ: Samo otgovaryane na boya
     if (contract === 'NO_TRUMP') {
       if (hasLeadSuit) return card.suit === leadSuit;
       return true;
     }
 
-    // VSICHKO KOZ: Zadulzhitelno otgovaryane i zadulzhitelno kachvane
     if (contract === 'ALL_TRUMP') {
       if (hasLeadSuit) {
         if (card.suit !== leadSuit) return false;
@@ -289,11 +294,9 @@ class BelotGameEngine {
       return true;
     }
 
-    // IGRA NA BOYA
     const trumpSuit = contract as Suit;
     const isLeadTrump = (leadSuit === trumpSuit);
 
-    // Vodena boya e koz
     if (isLeadTrump) {
       if (hasLeadSuit) {
         if (card.suit !== trumpSuit) return false;
@@ -304,16 +307,12 @@ class BelotGameEngine {
       return true;
     }
 
-    // Vodena obyknovena boya
     if (hasLeadSuit) {
       return card.suit === leadSuit;
     }
 
-    // Nyamash ot vodenata boya:
-    // Ako partnyorat vodi, ne si dlyzhen da cakash!
     if (isPartnerWinning) return true;
 
-    // Protivnik vodi: Zadulzhitelno cakane i nadcakvane
     const trumps = hand.filter(c => c.suit === trumpSuit);
     if (trumps.length > 0) {
       if (card.suit !== trumpSuit) return false;
@@ -362,7 +361,7 @@ class BelotGameEngine {
     }
 
     if (this.currentTrickNumber === 8) {
-      trickSum += (contract === 'NO_TRUMP' ? 20 : 10); // Desetka otgore
+      trickSum += (contract === 'NO_TRUMP' ? 20 : 10);
     }
 
     if (winner === 'SOUTH' || winner === 'NORTH') {
@@ -375,7 +374,6 @@ class BelotGameEngine {
 
     this.trickWinner = winner;
 
-    // 2.2 sekundi zadurzhane na 4-te karti v centura predi chistene
     setTimeout(() => {
       this.isResolvingTrick = false;
       this.currentTrickCards = [];
@@ -395,44 +393,69 @@ class BelotGameEngine {
     const declarer = this.auction.declarer!;
     const declarerIsNS = (declarer === 'SOUTH' || declarer === 'NORTH');
 
-    const totalRawNS = this.rawCardPoints.NORTH_SOUTH;
-    const totalRawEW = this.rawCardPoints.EAST_WEST;
+    let declPointsNS = 0;
+    let declPointsEW = 0;
+    let belotNS = 0;
+    let belotEW = 0;
+
+    const declsNSFormatted: { label: string; points: number }[] = [];
+    const declsEWFormatted: { label: string; points: number }[] = [];
+
+    this.submittedDeclarations.forEach(sub => {
+      const isNS = (sub.player === 'SOUTH' || sub.player === 'NORTH');
+      if (sub.item.type === 'БЕЛОТ') {
+        if (isNS) belotNS += sub.item.points;
+        else belotEW += sub.item.points;
+      } else {
+        if (isNS) {
+          declPointsNS += sub.item.points;
+          declsNSFormatted.push({ label: `${sub.item.ranks.join(' ')}`, points: sub.item.points });
+        } else {
+          declPointsEW += sub.item.points;
+          declsEWFormatted.push({ label: `${sub.item.ranks.join(' ')}`, points: sub.item.points });
+        }
+      }
+    });
+
+    const handNS = this.rawCardPoints.NORTH_SOUTH;
+    const handEW = this.rawCardPoints.EAST_WEST;
+
+    const totalRawNS = handNS + belotNS + declPointsNS;
+    const totalRawEW = handEW + belotEW + declPointsEW;
 
     const declarerTotal = declarerIsNS ? totalRawNS : totalRawEW;
     const defenderTotal = declarerIsNS ? totalRawEW : totalRawNS;
 
     let scoreNS = 0;
     let scoreEW = 0;
-    let outcomeText = 'Изкарана';
+    let outcomeText = 'ИЗКАРАНА';
 
-    // Proverka za Kapo (Valat): vsqka edna ot 8-te vzyatki e vzeta
     const isCapotNS = (this.tricksWon.NORTH_SOUTH === 8);
     const isCapotEW = (this.tricksWon.EAST_WEST === 8);
 
     if (isCapotNS) {
       scoreNS = Math.round(totalRawNS / 10) + 9;
       scoreEW = 0;
-      outcomeText = 'Капо (Валат)!';
+      outcomeText = 'КАПО (ВАЛАТ)!';
     } else if (isCapotEW) {
       scoreEW = Math.round(totalRawEW / 10) + 9;
       scoreNS = 0;
-      outcomeText = 'Капо (Валат)!';
+      outcomeText = 'КАПО (ВАЛАТ)!';
     } else if (declarerTotal > defenderTotal) {
-      // Izkarana
       scoreNS = Math.round(totalRawNS / 10);
       scoreEW = Math.round(totalRawEW / 10);
-      outcomeText = 'Изкарана';
+      outcomeText = 'ИЗКАРАНА';
     } else {
-      // Vutre: vsichki tochki otivat pri protivnika
+      // ВЪТРЕ (Всички точки отиват при противника)
       const allPoints = Math.round((totalRawNS + totalRawEW) / 10);
       if (declarerIsNS) {
         scoreNS = 0;
         scoreEW = allPoints;
-        outcomeText = 'Вътре (Ние)';
+        outcomeText = 'ВЪТРЕ';
       } else {
         scoreEW = 0;
         scoreNS = allPoints;
-        outcomeText = 'Вътре (Вие)';
+        outcomeText = 'ВЪТРЕ';
       }
     }
 
@@ -440,22 +463,22 @@ class BelotGameEngine {
     this.scores.EAST_WEST += scoreEW;
 
     const CONTRACT_TITLES: Record<string, string> = {
-      CLUBS: 'СПАТИЯ ♣',
-      DIAMONDS: 'КАРО ♦',
-      HEARTS: 'КУПА ♥',
-      SPADES: 'ПИКА ♠',
+      CLUBS: 'СПАТИЯ',
+      DIAMONDS: 'КАРО',
+      HEARTS: 'КУПА',
+      SPADES: 'ПИКА',
       NO_TRUMP: 'БЕЗ КОЗ',
       ALL_TRUMP: 'ВСИЧКО КОЗ',
     };
 
     this.roundSummary = {
       contractTitle: `${CONTRACT_TITLES[this.auction.currentContract || 'ALL_TRUMP']} (${declarerIsNS ? 'НИЕ' : 'ВИЕ'})`,
-      belotPointsNS: 0,
-      belotPointsEW: 0,
-      declarationsNS: [],
-      declarationsEW: [],
-      handPointsNS: totalRawNS,
-      handPointsEW: totalRawEW,
+      belotPointsNS: belotNS,
+      belotPointsEW: belotEW,
+      declarationsNS: declsNSFormatted,
+      declarationsEW: declsEWFormatted,
+      handPointsNS: handNS,
+      handPointsEW: handEW,
       totalPointsNS: totalRawNS,
       totalPointsEW: totalRawEW,
       outcomeText,
@@ -465,7 +488,6 @@ class BelotGameEngine {
 
     broadcastState();
 
-    // Tabloto stoi garanto 8 sekundi predi sledvashtiq krug!
     setTimeout(() => {
       this.dealer = NEXT_PLAYER[this.dealer];
       this.startNewRound();
@@ -578,6 +600,11 @@ wss.on('connection', ws => {
 
         case 'MAKE_BID':
           game.makeBid('SOUTH', data.payload.bidType, data.payload.contract);
+          broadcastState();
+          break;
+
+        case 'SUBMIT_DECLARATIONS':
+          game.addDeclarations('SOUTH', data.payload.declarations);
           broadcastState();
           break;
 

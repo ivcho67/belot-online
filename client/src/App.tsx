@@ -11,6 +11,15 @@ interface Card {
   rank: Rank;
 }
 
+interface DeclarationCandidate {
+  id: string;
+  type: string;
+  points: number;
+  label: string;
+  suit: Suit;
+  ranks: string[];
+}
+
 const SUIT_SYMBOLS: Record<Suit, string> = {
   CLUBS: '♣',
   DIAMONDS: '♦',
@@ -46,14 +55,23 @@ const SUIT_SORT_INDEX: Record<Suit, number> = {
   CLUBS: 0, DIAMONDS: 1, HEARTS: 2, SPADES: 3
 };
 
+const SEQUENCE_ORDER: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+
 export function App() {
   const [gameState, setGameState] = useState<any>(null);
+  const [sortDescending, setSortDescending] = useState(true);
   const [hoveredCutIndex, setHoveredCutIndex] = useState<number | null>(null);
   const [cutStep, setCutStep] = useState<number>(0);
   const [speechBubbles, setSpeechBubbles] = useState<Record<string, string>>({});
   const [countdown, setCountdown] = useState(8);
-  const [activeRoundSummary, setActiveRoundSummary] = useState<any>(null);
   const [isCollectingVisual, setIsCollectingVisual] = useState(false);
+
+  // Deklaratsii (Obyavi) modal
+  const [showDeclarationModal, setShowDeclarationModal] = useState(false);
+  const [availableDeclarations, setAvailableDeclarations] = useState<DeclarationCandidate[]>([]);
+  const [selectedDeclIds, setSelectedDeclIds] = useState<string[]>([]);
+  const [hasPromptedDeclarations, setHasPromptedDeclarations] = useState(false);
+
   const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -73,22 +91,18 @@ export function App() {
         const payload = data.payload;
         setGameState(payload);
 
-        // Управление на прибирането на картите
+        if (payload.phase === 'CUTTING') {
+          setHasPromptedDeclarations(false);
+          setShowDeclarationModal(false);
+        }
+
         if (payload.isResolvingTrick) {
-          // Задържане на 4-те карти за 1.4 секунди преди да започне плъзгането
           const timer = setTimeout(() => {
             setIsCollectingVisual(true);
           }, 1400);
           return () => clearTimeout(timer);
         } else {
           setIsCollectingVisual(false);
-        }
-
-        // Показване на таблото при края на рунда
-        if (payload.phase === 'ROUND_OVER' && payload.roundSummary) {
-          setActiveRoundSummary(payload.roundSummary);
-        } else if (payload.phase === 'CUTTING') {
-          setActiveRoundSummary(null);
         }
 
         if (payload.lastAction) {
@@ -108,6 +122,7 @@ export function App() {
     return () => ws.close();
   }, []);
 
+  // Timer za tablotot sled runda
   useEffect(() => {
     if (gameState?.phase === 'ROUND_OVER') {
       setCountdown(8);
@@ -117,6 +132,92 @@ export function App() {
       return () => clearInterval(interval);
     }
   }, [gameState?.phase]);
+
+  // Izchislyavane na obqvi pri purvata vzyatka
+  useEffect(() => {
+    if (!gameState || gameState.phase !== 'PLAYING' || hasPromptedDeclarations) return;
+    if (gameState.currentTrickNumber !== 1) return;
+    if (!gameState.myHand || gameState.myHand.length < 8) return;
+
+    const contract = gameState.auction?.currentContract as ContractType | undefined;
+    if (!contract || contract === 'NO_TRUMP') return;
+
+    const hand: Card[] = gameState.myHand;
+    const candidates: DeclarationCandidate[] = [];
+
+    // 1. Karetata
+    const rankCounts: Record<Rank, Card[]> = {
+      '7': [], '8': [], '9': [], '10': [], 'J': [], 'Q': [], 'K': [], 'A': []
+    };
+    hand.forEach(c => rankCounts[c.rank].push(c));
+
+    if (rankCounts['J'].length === 4) candidates.push({ id: 'carre-j', type: 'КАРЕ', points: 200, label: 'КАРЕ', suit: 'SPADES', ranks: ['J', 'J', 'J', 'J'] });
+    if (rankCounts['9'].length === 4) candidates.push({ id: 'carre-9', type: 'КАРЕ', points: 150, label: 'КАРЕ', suit: 'SPADES', ranks: ['9', '9', '9', '9'] });
+    if (rankCounts['A'].length === 4) candidates.push({ id: 'carre-a', type: 'КАРЕ', points: 100, label: 'КАРЕ', suit: 'SPADES', ranks: ['A', 'A', 'A', 'A'] });
+    if (rankCounts['10'].length === 4) candidates.push({ id: 'carre-10', type: 'КАРЕ', points: 100, label: 'КАРЕ', suit: 'SPADES', ranks: ['10', '10', '10', '10'] });
+    if (rankCounts['K'].length === 4) candidates.push({ id: 'carre-k', type: 'КАРЕ', points: 100, label: 'КАРЕ', suit: 'SPADES', ranks: ['K', 'K', 'K', 'K'] });
+    if (rankCounts['Q'].length === 4) candidates.push({ id: 'carre-q', type: 'КАРЕ', points: 100, label: 'КАРЕ', suit: 'SPADES', ranks: ['Q', 'Q', 'Q', 'Q'] });
+
+    // 2. Terci, kvarti, kvinti
+    const suits: Suit[] = ['CLUBS', 'DIAMONDS', 'HEARTS', 'SPADES'];
+    suits.forEach(suit => {
+      const suitCards = hand.filter(c => c.suit === suit);
+      const ranksInHand = new Set(suitCards.map(c => c.rank));
+
+      let currentSeq: Rank[] = [];
+      SEQUENCE_ORDER.forEach(rank => {
+        if (ranksInHand.has(rank)) {
+          currentSeq.push(rank);
+        } else {
+          checkPushSeq(suit, currentSeq);
+          currentSeq = [];
+        }
+      });
+      checkPushSeq(suit, currentSeq);
+    });
+
+    function checkPushSeq(suit: Suit, seq: Rank[]) {
+      const len = seq.length;
+      if (len >= 5) {
+        const top5 = seq.slice(len - 5);
+        candidates.push({ id: `quinte-${suit}-${top5[4]}`, type: 'КВИНТА', points: 100, label: 'КВИНТА', suit, ranks: [...top5].reverse() });
+      } else if (len === 4) {
+        candidates.push({ id: `quarte-${suit}-${len}`, type: 'КВАРТА', points: 50, label: 'КВАРТА', suit, ranks: [...seq].reverse() });
+      } else if (len === 3) {
+        candidates.push({ id: `tierce-${suit}-${seq[2]}`, type: 'ТЕРЦА', points: 20, label: 'ТЕРЦА', suit, ranks: [...seq].reverse() });
+      }
+    }
+
+    // 3. Belot
+    suits.forEach(suit => {
+      const isTrumpSuit = (contract === 'ALL_TRUMP' || contract === suit);
+      if (isTrumpSuit) {
+        const hasK = hand.some(c => c.suit === suit && c.rank === 'K');
+        const hasQ = hand.some(c => c.suit === suit && c.rank === 'Q');
+        if (hasK && hasQ) {
+          candidates.push({ id: `belot-${suit}`, type: 'БЕЛОТ', points: 20, label: 'БЕЛОТ', suit, ranks: ['K', 'Q'] });
+        }
+      }
+    });
+
+    if (candidates.length > 0) {
+      setAvailableDeclarations(candidates);
+      setSelectedDeclIds(candidates.map(c => c.id));
+      setShowDeclarationModal(true);
+      setHasPromptedDeclarations(true);
+    }
+  }, [gameState?.phase, gameState?.currentTrickNumber, gameState?.myHand, hasPromptedDeclarations, gameState?.auction?.currentContract]);
+
+  const confirmDeclarations = () => {
+    setShowDeclarationModal(false);
+    const chosen = availableDeclarations.filter(d => selectedDeclIds.includes(d.id));
+    socketRef.current?.send(
+      JSON.stringify({
+        type: 'SUBMIT_DECLARATIONS',
+        payload: { declarations: chosen }
+      })
+    );
+  };
 
   const handleCutCard = (index: number) => {
     setCutStep(1);
@@ -227,11 +328,7 @@ export function App() {
     socketRef.current?.send(
       JSON.stringify({
         type: 'PLAY_CARD',
-        payload: {
-          card,
-          declareBelot: false,
-          declarations: [],
-        },
+        payload: { card },
       })
     );
   };
@@ -249,9 +346,9 @@ export function App() {
       const isBTrump = contract === 'ALL_TRUMP' || (contract && contract !== 'NO_TRUMP' && b.suit === contract);
       const powerA = isATrump ? TRUMP_POWER[a.rank] : NON_TRUMP_POWER[a.rank];
       const powerB = isBTrump ? TRUMP_POWER[b.rank] : NON_TRUMP_POWER[b.rank];
-      return powerB - powerA;
+      return sortDescending ? powerB - powerA : powerA - powerB;
     });
-  }, [gameState?.myHand, gameState?.auction?.currentContract]);
+  }, [gameState?.myHand, gameState?.auction?.currentContract, sortDescending]);
 
   if (!gameState) {
     return (
@@ -279,12 +376,12 @@ export function App() {
     }
   };
 
-  const summary = activeRoundSummary || gameState.roundSummary;
+  const summary = gameState.roundSummary;
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#132f42] select-none overflow-hidden font-sans relative">
       
-      {/* Табло за точки горе вляво */}
+      {/* Tablo za tochki gore vlyavo */}
       <div className="absolute top-5 left-6 z-30 flex items-center gap-3">
         <div className="bg-[#0f2434]/95 border-2 border-[#1f4e70] rounded-2xl px-5 py-2.5 shadow-2xl flex items-center gap-6">
           <div className="flex flex-col items-center">
@@ -310,11 +407,11 @@ export function App() {
         )}
       </div>
 
-      {/* Масата */}
+      {/* Masata */}
       <main className="flex-1 relative flex items-center justify-center p-4">
         <div className="relative w-[1060px] h-[700px] bg-[#23587c] rounded-[180px] border-[18px] border-[#163a52] shadow-2xl flex flex-col justify-between p-6 ring-4 ring-[#0d2230]/40">
 
-          {/* Север (Bot 1) */}
+          {/* Sever (Bot 1) */}
           <div className="flex flex-col items-center relative">
             {speechBubbles['NORTH'] && (
               <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
@@ -334,10 +431,10 @@ export function App() {
             )}
           </div>
 
-          {/* Средна линия */}
+          {/* Sredna liniq */}
           <div className="flex justify-between items-center w-full px-6">
             
-            {/* Запад (Bot 3) */}
+            {/* Zapad (Bot 3) */}
             <div className="flex flex-col items-center relative w-28">
               {speechBubbles['WEST'] && (
                 <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
@@ -357,7 +454,7 @@ export function App() {
               )}
             </div>
 
-            {/* Център: Взятка */}
+            {/* Centar: Vzyatka */}
             <div className="relative w-[560px] h-[330px] flex items-center justify-center">
 
               {gameState.phase === 'CUTTING' && (
@@ -399,7 +496,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Дясното тесте за раздаване */}
+              {/* Dqsnoto teste za razdavane */}
               {gameState.phase !== 'CUTTING' && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 w-20 h-28 bg-[#102d42] rounded-2xl border-2 border-blue-400/60 shadow-2xl flex items-center justify-center pointer-events-none opacity-85 z-10">
                   <div className="w-16 h-22 border border-blue-300/30 rounded-xl flex items-center justify-center">
@@ -408,7 +505,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Двуслоен рендер на картите на масата */}
+              {/* Vzyatkata v centura */}
               {gameState.phase !== 'CUTTING' && (
                 <div className="w-full h-full relative flex items-center justify-center">
                   {gameState.currentTrickCards.map((tc: any, idx: number) => {
@@ -460,7 +557,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Панел за наддаване */}
+              {/* Naddavane */}
               {isMyTurnToBid && (
                 <div className="absolute z-40 bg-white rounded-3xl shadow-2xl border-2 border-slate-300 p-4 flex flex-col items-center gap-3 animate-in zoom-in-90 duration-200">
                   <div className="grid grid-cols-2 gap-2.5 w-72">
@@ -491,7 +588,7 @@ export function App() {
 
             </div>
 
-            {/* Изток (Bot 2) */}
+            {/* Iztok (Bot 2) */}
             <div className="flex flex-col items-center relative w-28">
               {speechBubbles['EAST'] && (
                 <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
@@ -513,11 +610,25 @@ export function App() {
 
           </div>
 
-          {/* Юг (Играчът) */}
+          {/* Yug (Igrachut) */}
           <div className="flex flex-col items-center relative">
             {speechBubbles['SOUTH'] && (
               <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
                 {speechBubbles['SOUTH']}
+              </div>
+            )}
+
+            {/* BUTON ZA SORTIRANE (NAD KARTITE) */}
+            {gameState.phase !== 'CUTTING' && gameState.myHand && gameState.myHand.length > 0 && (
+              <div className="mb-2 z-20">
+                <button
+                  onClick={() => setSortDescending(!sortDescending)}
+                  className="flex items-center gap-2 px-4 py-1.5 bg-[#0f283a]/90 hover:bg-[#143952] border border-amber-500/70 rounded-full shadow-lg cursor-pointer transition-all active:scale-95"
+                >
+                  <span className="text-amber-400 font-black text-xs">
+                    {sortDescending ? '▼ По-силни отляво' : '▲ По-слаби отляво'}
+                  </span>
+                </button>
               </div>
             )}
 
@@ -572,66 +683,161 @@ export function App() {
 
         </div>
 
-        {/* ТАБЛО С РЕЗУЛТАТИТЕ СЛЕД РУНДА (ОТ СКРИЙНШОТА) */}
-        {summary && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-300">
-            <div className="w-[540px] bg-[#0c1824] border-2 border-amber-500 rounded-3xl shadow-2xl overflow-hidden flex flex-col text-slate-100">
-              
-              <div className="flex items-center justify-center gap-2.5 py-4 bg-[#08121b] border-b border-amber-500/40">
-                <span className="text-2xl text-red-500 leading-none">♦</span>
-                <span className="text-xl font-black tracking-wider text-white uppercase">{summary.contractTitle}</span>
+        {/* MODAL "ИЗБЕРИ ДЕКЛАРАЦИЯ" (ОТ СКРИЙНШОТОВЕТЕ) */}
+        {showDeclarationModal && availableDeclarations.length > 0 && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="w-[420px] bg-[#12283a] border-2 border-amber-500/80 rounded-2xl shadow-2xl p-5 flex flex-col gap-4 text-white">
+              <h2 className="text-lg font-black text-center tracking-wider uppercase text-white">
+                ИЗБЕРИ ДЕКЛАРАЦИЯ
+              </h2>
+
+              <div className="flex flex-col gap-2.5 my-2">
+                {availableDeclarations.map(decl => {
+                  const isChecked = selectedDeclIds.includes(decl.id);
+                  const isRed = decl.suit === 'DIAMONDS' || decl.suit === 'HEARTS';
+
+                  return (
+                    <div
+                      key={decl.id}
+                      onClick={() => {
+                        setSelectedDeclIds(prev =>
+                          prev.includes(decl.id) ? prev.filter(x => x !== decl.id) : [...prev, decl.id]
+                        );
+                      }}
+                      className="flex items-center justify-between p-3 bg-[#0d1d2b] hover:bg-[#163045] rounded-xl border border-slate-700 cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {}}
+                          className="w-5 h-5 accent-amber-500 rounded cursor-pointer"
+                        />
+                        <span className="font-black text-sm tracking-wide">{decl.label}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 bg-white rounded-full flex items-center justify-center shadow">
+                          <span style={{ color: isRed ? '#dc2626' : '#0f172a' }} className="text-lg font-black">
+                            {SUIT_SYMBOLS[decl.suit]}
+                          </span>
+                        </div>
+                        <span className="font-black text-base text-slate-200">
+                          {decl.ranks.join(' ')}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
+              <button
+                onClick={confirmDeclarations}
+                className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-base rounded-xl shadow-lg cursor-pointer active:scale-95 transition-all uppercase tracking-wider"
+              >
+                ПРОДЪЛЖИ
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ТАБЛО С РЕЗУЛТАТИТЕ СЛЕД РУНДА (ОТ СКРИЙНШОТ 3) */}
+        {gameState.phase === 'ROUND_OVER' && summary && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-300">
+            <div className="w-[520px] bg-[#0c1824] border-2 border-amber-500/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100">
+              
+              {/* Gorna lenta s krugla ikona na dogovora */}
+              <div className="flex items-center justify-center gap-3 py-3.5 bg-[#08121b] border-b border-amber-500/40">
+                <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow">
+                  <span className="text-xl font-black text-red-600">J</span>
+                </div>
+                <span className="text-lg font-black tracking-wider text-white uppercase">{summary.contractTitle}</span>
+              </div>
+
+              {/* Koloni: NIE i VIE */}
               <div className="grid grid-cols-12 px-8 pt-4 pb-2 text-amber-400 font-black text-base tracking-wider">
                 <div className="col-span-6"></div>
                 <div className="col-span-3 text-center">НИЕ</div>
                 <div className="col-span-3 text-center">ВИЕ</div>
               </div>
 
+              {/* Redove */}
               <div className="flex flex-col text-sm font-semibold divide-y divide-amber-500/20 px-8">
+                
+                {/* Beloti */}
                 <div className="grid grid-cols-12 py-3 items-center">
                   <div className="col-span-6 text-slate-300 tracking-wide font-bold">БЕЛОТИ</div>
-                  <div className="col-span-3 text-center font-black text-base">{summary.belotPointsNS}</div>
+                  <div className="col-span-3 flex justify-center items-center gap-1.5 font-black text-base">
+                    {summary.belotPointsNS > 0 ? (
+                      <>
+                        <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center shadow">
+                          <span className="text-base text-red-600 leading-none">♥</span>
+                        </div>
+                        <span className="text-amber-400">+{summary.belotPointsNS}</span>
+                      </>
+                    ) : (
+                      <span>0</span>
+                    )}
+                  </div>
                   <div className="col-span-3 text-center font-black text-base">{summary.belotPointsEW}</div>
                 </div>
 
+                {/* Obyavyavane */}
                 <div className="grid grid-cols-12 py-3 items-center">
                   <div className="col-span-6 text-slate-300 tracking-wide font-bold">ОБЯВЯВАНЕ</div>
-                  <div className="col-span-3 text-center font-black text-amber-300">
-                    {summary.declarationsNS?.length ? summary.declarationsNS.map((d: any) => d.label).join(', ') : '0'}
+                  <div className="col-span-3 flex justify-center items-center gap-1.5 font-black text-base">
+                    {summary.declarationsNS && summary.declarationsNS.length > 0 ? (
+                      <>
+                        <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center shadow">
+                          <span className="text-base text-red-600 leading-none">♦</span>
+                        </div>
+                        <span className="text-xs text-white">{summary.declarationsNS[0].label}</span>
+                        <span className="text-amber-400 text-xs">+{summary.declarationsNS[0].points}</span>
+                      </>
+                    ) : (
+                      <span>0</span>
+                    )}
                   </div>
-                  <div className="col-span-3 text-center font-black text-amber-300">
-                    {summary.declarationsEW?.length ? summary.declarationsEW.map((d: any) => d.label).join(', ') : '0'}
-                  </div>
+                  <div className="col-span-3 text-center font-black text-base">{summary.declarationsEW?.length ? summary.declarationsEW.map((d: any) => d.points).reduce((a: number, b: number) => a + b, 0) : '0'}</div>
                 </div>
 
+                {/* Ot racete */}
                 <div className="grid grid-cols-12 py-3 items-center">
                   <div className="col-span-6 text-slate-300 tracking-wide font-bold">ОТ РЪЦЕТЕ</div>
                   <div className="col-span-3 text-center font-black text-base">{summary.handPointsNS}</div>
                   <div className="col-span-3 text-center font-black text-base">{summary.handPointsEW}</div>
                 </div>
 
+                {/* Sbor s oranjeva strelka pri vutre */}
                 <div className="grid grid-cols-12 py-3 items-center">
                   <div className="col-span-6 text-slate-300 tracking-wide font-bold">СБОР</div>
-                  <div className="col-span-3 text-center font-black text-base text-amber-400">{summary.totalPointsNS}</div>
-                  <div className="col-span-3 text-center font-black text-base text-amber-400">{summary.totalPointsEW}</div>
+                  <div className="col-span-3 flex justify-center items-center gap-2 font-black text-base text-slate-200">
+                    <span>{summary.totalPointsNS}</span>
+                    {summary.outcomeText.includes('ВЪТРЕ') && (
+                      <span className="text-amber-400 text-lg">➔</span>
+                    )}
+                  </div>
+                  <div className="col-span-3 text-center font-black text-base text-slate-200">{summary.totalPointsEW}</div>
                 </div>
 
+                {/* Izhod */}
                 <div className="grid grid-cols-12 py-3 items-center">
                   <div className="col-span-6 text-slate-300 tracking-wide font-bold">ИЗХОД</div>
-                  <div className="col-span-6 text-center font-black text-base text-amber-300">
+                  <div className="col-span-6 text-center font-black text-base text-amber-300 uppercase">
                     {summary.outcomeText}
                   </div>
                 </div>
               </div>
 
+              {/* Oranjeviq bar REZULTAT */}
               <div className="grid grid-cols-12 px-8 py-3.5 bg-amber-500 text-slate-950 font-black text-base items-center mt-3 shadow-inner">
-                <div className="col-span-6 tracking-wider text-lg">РЕЗУЛТАТ</div>
-                <div className="col-span-3 text-center text-2xl">{summary.scoreAddedNS}</div>
-                <div className="col-span-3 text-center text-2xl">{summary.scoreAddedEW}</div>
+                <div className="col-span-6 tracking-wider text-base">РЕЗУЛТАТ</div>
+                <div className="col-span-3 text-center text-xl">{summary.scoreAddedNS}</div>
+                <div className="col-span-3 text-center text-xl">{summary.scoreAddedEW}</div>
               </div>
 
-              <div className="py-3 bg-[#08121b] text-center text-xs text-slate-400 font-bold tracking-wide border-t border-slate-800">
+              {/* Dolno otbroqvane */}
+              <div className="py-2.5 bg-[#08121b] text-center text-xs text-slate-400 font-bold tracking-wide border-t border-slate-800">
                 Играта продължава след {countdown} сек.
               </div>
 
