@@ -506,14 +506,6 @@ class BelotRoom {
       outcomeText = 'ВИСЯЩИ ТОЧКИ';
     }
 
-    if (this.auction.multiplier === 'CONTRA') {
-      scoreNS *= 2;
-      scoreEW *= 2;
-    } else if (this.auction.multiplier === 'RECONTRA') {
-      scoreNS *= 4;
-      scoreEW *= 4;
-    }
-
     this.scores.NORTH_SOUTH += scoreNS;
     this.scores.EAST_WEST += scoreEW;
 
@@ -589,7 +581,6 @@ class BelotRoom {
 const PORT = Number(process.env.PORT) || 8080;
 const wss = new WebSocketServer({ port: PORT });
 
-// Upravlenie na lobita
 const rooms = new Map<string, BelotRoom>();
 const clientToRoom = new Map<WebSocket, string>();
 const clientToPosition = new Map<WebSocket, PlayerPosition>();
@@ -630,51 +621,59 @@ function handleBotNextAction(room: BelotRoom) {
   if (room.isResolvingTrick || room.phase === 'ROUND_OVER' || room.phase === 'LOBBY') return;
 
   const currentSeat = room.seats[room.currentPlayer];
-  // AKO E CHOVEK, BOTUT NIKOGA NE SE NAMESVA!
-  if (!currentSeat.isBot) return;
+  // AKO NA TOVA MQSTO SEDI CHOVEK - BOTUT E NAPULNO BLOKIRAN!
+  if (!currentSeat.isBot) {
+    return;
+  }
 
   if (room.phase === 'CUTTING') {
     room.botActionTimer = setTimeout(() => {
-      room.cutDeck(16);
-      broadcastRoom(room.roomId);
+      // Dvoina proverka predi hod dali chovek ne e sednal v tozi moment
+      if (room.seats[room.cutter].isBot) {
+        room.cutDeck(16);
+        broadcastRoom(room.roomId);
+      }
     }, 1100);
     return;
   }
 
   if (room.phase === 'BIDDING') {
     room.botActionTimer = setTimeout(() => {
-      const hand = room.hands[room.currentPlayer];
-      const hasJacks = hand.filter(c => c.rank === 'J').length;
-      const hasAces = hand.filter(c => c.rank === 'A').length;
+      if (room.seats[room.currentPlayer].isBot) {
+        const hand = room.hands[room.currentPlayer];
+        const hasJacks = hand.filter(c => c.rank === 'J').length;
+        const hasAces = hand.filter(c => c.rank === 'A').length;
 
-      if (!room.auction.currentContract && (hasJacks >= 2 || hasAces >= 2)) {
-        room.makeBid(room.currentPlayer, 'CONTRACT', 'ALL_TRUMP');
-      } else {
-        room.makeBid(room.currentPlayer, 'PASS');
+        if (!room.auction.currentContract && (hasJacks >= 2 || hasAces >= 2)) {
+          room.makeBid(room.currentPlayer, 'CONTRACT', 'ALL_TRUMP');
+        } else {
+          room.makeBid(room.currentPlayer, 'PASS');
+        }
+        broadcastRoom(room.roomId);
       }
-      broadcastRoom(room.roomId);
     }, 1200);
     return;
   }
 
   if (room.phase === 'PLAYING') {
     room.botActionTimer = setTimeout(() => {
-      const botPos = room.currentPlayer;
-      const botCards = room.hands[botPos];
+      if (room.seats[room.currentPlayer].isBot) {
+        const botPos = room.currentPlayer;
+        const botCards = room.hands[botPos];
 
-      if (!botCards || botCards.length === 0) return;
+        if (!botCards || botCards.length === 0) return;
 
-      const validCards = botCards.filter(c => room.isCardValidForPlay(botPos, c));
-      const chosenCard = validCards.length > 0 ? validCards[0] : botCards[0];
+        const validCards = botCards.filter(c => room.isCardValidForPlay(botPos, c));
+        const chosenCard = validCards.length > 0 ? validCards[0] : botCards[0];
 
-      room.playCard(botPos, chosenCard);
-      broadcastRoom(room.roomId);
+        room.playCard(botPos, chosenCard);
+        broadcastRoom(room.roomId);
+      }
     }, 1300);
   }
 }
 
 wss.on('connection', ws => {
-  // Po podrazbirane noviqt klient vliza v publichnata staq i poluchava migoven update
   const defaultRoom = getOrCreateRoom('PUBLIC');
   clientToRoom.set(ws, 'PUBLIC');
   ws.send(JSON.stringify({ 
@@ -692,7 +691,6 @@ wss.on('connection', ws => {
         case 'JOIN_ROOM': {
           const newRoomId = (data.payload.roomId || 'PUBLIC').toUpperCase().trim();
           
-          // Osvobozhdavame staro mqsto
           const oldPos = clientToPosition.get(ws);
           if (oldPos && room.seats[oldPos].ws === ws) {
             room.seats[oldPos] = { name: 'Свободно', isBot: true };
@@ -709,37 +707,41 @@ wss.on('connection', ws => {
         case 'JOIN_SEAT': {
           const { name, position } = data.payload as { name: string; position: PlayerPosition };
 
+          // Zashchita: Ako sedalkata veche ima chovek i tova ne e sushtiq klient
           if (!room.seats[position].isBot && room.seats[position].ws !== ws) {
             ws.send(JSON.stringify({ type: 'SEAT_TAKEN_ERROR', message: 'Мястото вече е заето от друг играч!' }));
             return;
           }
 
-          // Osvobozhdavame staro mqsto na tozi socket v sushtata staq
+          // Ako predi tova klientut e sedql na drugo mqsto, go osvobozhdavame
           const prev = clientToPosition.get(ws);
           if (prev && prev !== position) {
             room.seats[prev] = { name: 'Свободно', isBot: true };
           }
 
+          // Nastanyavame igracha i GARANTIRANO ZALYUCHVAME BOTA
           room.seats[position] = { 
             name: name.trim() || 'Играч', 
             isBot: false, 
             ws 
           };
           clientToPosition.set(ws, position);
+          
+          // Anulirame bot timer-a vednaga
           room.cancelBotAction();
 
+          // Zapochvame igra samo ako e v faza LOBBY
           if (room.phase === 'LOBBY') {
             room.startNewRound();
           }
 
-          // MOMENTEN BROADCAST KYM VSICHKI V STAQTA!
           broadcastRoom(room.roomId);
           break;
         }
 
         case 'CUT_DECK': {
           const p = clientToPosition.get(ws);
-          if (p && p === room.cutter) {
+          if (p && p === room.cutter && !room.seats[p].isBot) {
             room.cutDeck(data.payload.cutIndex);
             broadcastRoom(room.roomId);
           }
@@ -748,7 +750,7 @@ wss.on('connection', ws => {
 
         case 'MAKE_BID': {
           const p = clientToPosition.get(ws);
-          if (p && p === room.currentPlayer) {
+          if (p && p === room.currentPlayer && !room.seats[p].isBot) {
             room.makeBid(p, data.payload.bidType, data.payload.contract);
             broadcastRoom(room.roomId);
           }
@@ -757,7 +759,7 @@ wss.on('connection', ws => {
 
         case 'SUBMIT_DECLARATIONS': {
           const p = clientToPosition.get(ws);
-          if (p) {
+          if (p && !room.seats[p].isBot) {
             room.addDeclarations(p, data.payload.declarations);
             broadcastRoom(room.roomId);
           }
@@ -766,7 +768,7 @@ wss.on('connection', ws => {
 
         case 'PLAY_CARD': {
           const p = clientToPosition.get(ws);
-          if (p && p === room.currentPlayer) {
+          if (p && p === room.currentPlayer && !room.seats[p].isBot) {
             room.playCard(p, data.payload.card);
             broadcastRoom(room.roomId);
           }
@@ -794,4 +796,4 @@ wss.on('connection', ws => {
   });
 });
 
-console.log(`[Belot Multi-Room Server] Live on port ${PORT}`);
+console.log(`[Belot Dedicated Multi-Room Server] Port ${PORT}`);
