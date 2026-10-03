@@ -1,3 +1,8 @@
+/**
+ * File: server.ts
+ * Version: v4.0.0 - Official Belot.bg Canonical Engine
+ */
+
 import { WebSocketServer, WebSocket } from 'ws';
 
 export type Suit = 'CLUBS' | 'DIAMONDS' | 'HEARTS' | 'SPADES';
@@ -38,7 +43,7 @@ export interface RoundSummary {
 }
 
 const SUITS: Suit[] = ['CLUBS', 'DIAMONDS', 'HEARTS', 'SPADES'];
-const RANKS: Rank[] = ['7', '8', '9', '10', 'J' , 'Q', 'K', 'A'];
+const RANKS: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
 const NEXT_PLAYER: Record<PlayerPosition, PlayerPosition> = {
   SOUTH: 'EAST',
@@ -47,20 +52,22 @@ const NEXT_PLAYER: Record<PlayerPosition, PlayerPosition> = {
   WEST: 'SOUTH',
 };
 
-const TRUMP_VALUES: Record<Rank, number> = {
-  '7': 0, '8': 0, 'Q': 3, 'K': 4, '10': 10, 'A': 11, '9': 14, 'J': 20
-};
-
-const NON_TRUMP_VALUES: Record<Rank, number> = {
-  '7': 0, '8': 0, '9': 0, 'J': 2, 'Q': 3, 'K': 4, '10': 10, 'A': 11
-};
-
+// Јачина на картите при пресметка кој зема
 const TRUMP_POWER: Record<Rank, number> = {
   '7': 0, '8': 1, 'Q': 2, 'K': 3, '10': 4, 'A': 5, '9': 6, 'J': 7
 };
 
 const NON_TRUMP_POWER: Record<Rank, number> = {
   '7': 0, '8': 1, '9': 2, 'J': 3, 'Q': 4, 'K': 5, '10': 6, 'A': 7
+};
+
+// Бодовна вредност на картите
+const TRUMP_VALUES: Record<Rank, number> = {
+  '7': 0, '8': 0, 'Q': 3, 'K': 4, '10': 10, 'A': 11, '9': 14, 'J': 20
+};
+
+const NON_TRUMP_VALUES: Record<Rank, number> = {
+  '7': 0, '8': 0, '9': 0, 'J': 2, 'Q': 3, 'K': 4, '10': 10, 'A': 11
 };
 
 class BelotGameEngine {
@@ -84,6 +91,7 @@ class BelotGameEngine {
   public tricksWon = { NORTH_SOUTH: 0, EAST_WEST: 0 };
   public rawCardPoints = { NORTH_SOUTH: 0, EAST_WEST: 0 };
   public scores = { NORTH_SOUTH: 0, EAST_WEST: 0 };
+  public hangingPoints: number = 0;
   public isResolvingTrick: boolean = false;
   public trickWinner?: PlayerPosition;
   public lastAction?: { player: PlayerPosition; text: string };
@@ -181,6 +189,14 @@ class BelotGameEngine {
       this.auction.multiplier = 'NORMAL';
       this.auction.consecutivePasses = 0;
       this.lastAction = { player, text: contract };
+    } else if (bidType === 'CONTRA') {
+      this.auction.multiplier = 'CONTRA';
+      this.auction.consecutivePasses = 0;
+      this.lastAction = { player, text: 'КОНТРА' };
+    } else if (bidType === 'RECONTRA') {
+      this.auction.multiplier = 'RECONTRA';
+      this.auction.consecutivePasses = 0;
+      this.lastAction = { player, text: 'РЕКОНТРА' };
     }
 
     this.currentPlayer = NEXT_PLAYER[this.currentPlayer];
@@ -193,6 +209,9 @@ class BelotGameEngine {
     });
   }
 
+  /**
+   * СТРОГО ОПРЕДЕЛУВАЊЕ КОЈ ЈА ЗЕМА РАКАТА СПОРЕД ПРАВИЛНИКОТ
+   */
   public getCurrentTrickWinner(): { winner: PlayerPosition; highestPower: number } {
     const contract = this.auction.currentContract!;
     const leadCard = this.currentTrickCards[0].card;
@@ -200,6 +219,7 @@ class BelotGameEngine {
 
     let winner = this.currentTrickCards[0].player;
 
+    // 1. СЀ КОЗ: Раката се решава ИСКЛУЧИВО меѓу картите од поведената боја
     if (contract === 'ALL_TRUMP') {
       let highest = TRUMP_POWER[leadCard.rank];
       for (let i = 1; i < this.currentTrickCards.length; i++) {
@@ -215,6 +235,7 @@ class BelotGameEngine {
       return { winner, highestPower: highest };
     }
 
+    // 2. БЕЗ КОЗ: Раката се решава ИСКЛУЧИВО меѓу картите од поведената боја
     if (contract === 'NO_TRUMP') {
       let highest = NON_TRUMP_POWER[leadCard.rank];
       for (let i = 1; i < this.currentTrickCards.length; i++) {
@@ -230,6 +251,7 @@ class BelotGameEngine {
       return { winner, highestPower: highest };
     }
 
+    // 3. ИГРА НА БОЈА (ЕДЕН КОЗ)
     const trumpSuit = contract as Suit;
     let highestTrumpPower = -1;
     let hasTrump = false;
@@ -263,6 +285,9 @@ class BelotGameEngine {
     return { winner, highestPower: hasTrump ? highestTrumpPower : highestLeadPower };
   }
 
+  /**
+   * СТРОГИ ПРАВИЛА ЗА ДОЗВОЛЕН ПОТЕГ
+   */
   public isCardValidForPlay(player: PlayerPosition, card: Card): boolean {
     const hand = this.hands[player];
     const contract = this.auction.currentContract!;
@@ -279,11 +304,13 @@ class BelotGameEngine {
       (player === 'EAST' && winner === 'WEST') ||
       (player === 'WEST' && winner === 'EAST');
 
+    // БЕЗ КОЗ: Задолжително одговарање на бојата, нема задолжително качување
     if (contract === 'NO_TRUMP') {
       if (hasLeadSuit) return card.suit === leadSuit;
       return true;
     }
 
+    // СЀ КОЗ: Задолжително одговарање и задолжително качување секогаш
     if (contract === 'ALL_TRUMP') {
       if (hasLeadSuit) {
         if (card.suit !== leadSuit) return false;
@@ -294,6 +321,7 @@ class BelotGameEngine {
       return true;
     }
 
+    // ИГРА НА БОЈА
     const trumpSuit = contract as Suit;
     const isLeadTrump = (leadSuit === trumpSuit);
 
@@ -311,8 +339,10 @@ class BelotGameEngine {
       return card.suit === leadSuit;
     }
 
-    if (isPartnerWinning) return true;
+    // Доколку немаш од поведената боја:
+    if (isPartnerWinning) return true; // Ако партнерот води, не мора да сечеш
 
+    // Противник води: Задолжително сечење со коз и надсекување
     const trumps = hand.filter(c => c.suit === trumpSuit);
     if (trumps.length > 0) {
       if (card.suit !== trumpSuit) return false;
@@ -360,6 +390,7 @@ class BelotGameEngine {
       }
     }
 
+    // Премија за последно 10
     if (this.currentTrickNumber === 8) {
       trickSum += (contract === 'NO_TRUMP' ? 20 : 10);
     }
@@ -374,6 +405,7 @@ class BelotGameEngine {
 
     this.trickWinner = winner;
 
+    // Задршка од 2.2 секунди за јасно гледање на последната карта пред собирање
     setTimeout(() => {
       this.isResolvingTrick = false;
       this.currentTrickCards = [];
@@ -388,10 +420,14 @@ class BelotGameEngine {
     }, 2200);
   }
 
+  /**
+   * СТРОГО ТОЧКУВАЊЕ: КАПО, ВНАТРЕ, ВИСЕЧКИ ПОЕНИ И ЗАКРУЖУВАЊЕ СПОРЕД BELOT.BG
+   */
   private finalizeRound() {
     this.phase = 'ROUND_OVER';
     const declarer = this.auction.declarer!;
     const declarerIsNS = (declarer === 'SOUTH' || declarer === 'NORTH');
+    const contract = this.auction.currentContract!;
 
     let declPointsNS = 0;
     let declPointsEW = 0;
@@ -401,21 +437,24 @@ class BelotGameEngine {
     const declsNSFormatted: { label: string; points: number }[] = [];
     const declsEWFormatted: { label: string; points: number }[] = [];
 
-    this.submittedDeclarations.forEach(sub => {
-      const isNS = (sub.player === 'SOUTH' || sub.player === 'NORTH');
-      if (sub.item.type === 'БЕЛОТ') {
-        if (isNS) belotNS += sub.item.points;
-        else belotEW += sub.item.points;
-      } else {
-        if (isNS) {
-          declPointsNS += sub.item.points;
-          declsNSFormatted.push({ label: `${sub.item.ranks.join(' ')}`, points: sub.item.points });
+    // При Без коз не важат никакви објави
+    if (contract !== 'NO_TRUMP') {
+      this.submittedDeclarations.forEach(sub => {
+        const isNS = (sub.player === 'SOUTH' || sub.player === 'NORTH');
+        if (sub.item.type === 'БЕЛОТ') {
+          if (isNS) belotNS += sub.item.points;
+          else belotEW += sub.item.points;
         } else {
-          declPointsEW += sub.item.points;
-          declsEWFormatted.push({ label: `${sub.item.ranks.join(' ')}`, points: sub.item.points });
+          if (isNS) {
+            declPointsNS += sub.item.points;
+            declsNSFormatted.push({ label: sub.item.ranks.join(' '), points: sub.item.points });
+          } else {
+            declPointsEW += sub.item.points;
+            declsEWFormatted.push({ label: sub.item.ranks.join(' '), points: sub.item.points });
+          }
         }
-      }
-    });
+      });
+    }
 
     const handNS = this.rawCardPoints.NORTH_SOUTH;
     const handEW = this.rawCardPoints.EAST_WEST;
@@ -430,33 +469,63 @@ class BelotGameEngine {
     let scoreEW = 0;
     let outcomeText = 'ИЗКАРАНА';
 
+    // 1. Проверка за КАПО (ВАЛАТ): Освоени сите 8 раце (+9 во записот)
     const isCapotNS = (this.tricksWon.NORTH_SOUTH === 8);
     const isCapotEW = (this.tricksWon.EAST_WEST === 8);
 
     if (isCapotNS) {
-      scoreNS = Math.round(totalRawNS / 10) + 9;
+      scoreNS = Math.round(totalRawNS / 10) + 9 + this.hangingPoints;
       scoreEW = 0;
+      this.hangingPoints = 0;
       outcomeText = 'КАПО (ВАЛАТ)!';
     } else if (isCapotEW) {
-      scoreEW = Math.round(totalRawEW / 10) + 9;
+      scoreEW = Math.round(totalRawEW / 10) + 9 + this.hangingPoints;
       scoreNS = 0;
+      this.hangingPoints = 0;
       outcomeText = 'КАПО (ВАЛАТ)!';
     } else if (declarerTotal > defenderTotal) {
+      // ИЗКАРАНА: Тимот што објавил освоил строго повеќе поени
       scoreNS = Math.round(totalRawNS / 10);
       scoreEW = Math.round(totalRawEW / 10);
+      if (declarerIsNS) scoreNS += this.hangingPoints;
+      else scoreEW += this.hangingPoints;
+      this.hangingPoints = 0;
       outcomeText = 'ИЗКАРАНА';
-    } else {
-      // ВЪТРЕ (Всички точки отиват при противника)
-      const allPoints = Math.round((totalRawNS + totalRawEW) / 10);
+    } else if (declarerTotal < defenderTotal) {
+      // ВНАТРЕ (ВЪТРЕ): Сите поени одат кај противникот
+      const allPoints = Math.round((totalRawNS + totalRawEW) / 10) + this.hangingPoints;
+      this.hangingPoints = 0;
       if (declarerIsNS) {
         scoreNS = 0;
         scoreEW = allPoints;
-        outcomeText = 'ВЪТРЕ';
       } else {
         scoreEW = 0;
         scoreNS = allPoints;
-        outcomeText = 'ВЪТРЕ';
       }
+      outcomeText = 'ВЪТРЕ';
+    } else {
+      // ВИСЕЧКА ИГРА: Точно еднаков број поени
+      const defScore = Math.round(defenderTotal / 10);
+      const decScore = Math.round(declarerTotal / 10);
+      this.hangingPoints += decScore;
+
+      if (declarerIsNS) {
+        scoreNS = 0;
+        scoreEW = defScore;
+      } else {
+        scoreEW = 0;
+        scoreNS = defScore;
+      }
+      outcomeText = 'ВИСЯЩИ ТОЧКИ';
+    }
+
+    // Мултипликатори за Контра / Реконтра
+    if (this.auction.multiplier === 'CONTRA') {
+      scoreNS *= 2;
+      scoreEW *= 2;
+    } else if (this.auction.multiplier === 'RECONTRA') {
+      scoreNS *= 4;
+      scoreEW *= 4;
     }
 
     this.scores.NORTH_SOUTH += scoreNS;
@@ -472,7 +541,7 @@ class BelotGameEngine {
     };
 
     this.roundSummary = {
-      contractTitle: `${CONTRACT_TITLES[this.auction.currentContract || 'ALL_TRUMP']} (${declarerIsNS ? 'НИЕ' : 'ВИЕ'})`,
+      contractTitle: `${CONTRACT_TITLES[contract || 'ALL_TRUMP']} (${declarerIsNS ? 'НИЕ' : 'ВИЕ'})`,
       belotPointsNS: belotNS,
       belotPointsEW: belotEW,
       declarationsNS: declsNSFormatted,
@@ -488,11 +557,12 @@ class BelotGameEngine {
 
     broadcastState();
 
+    // Таблата стои фиксирано 8.5 секунди пред новата рунда
     setTimeout(() => {
       this.dealer = NEXT_PLAYER[this.dealer];
       this.startNewRound();
       broadcastState();
-    }, 8000);
+    }, 8500);
   }
 
   public getPayloadFor(targetPlayer: PlayerPosition = 'SOUTH') {
@@ -515,6 +585,7 @@ class BelotGameEngine {
       isResolvingTrick: this.isResolvingTrick,
       trickWinner: this.trickWinner,
       scores: this.scores,
+      hangingPoints: this.hangingPoints,
       lastAction: this.lastAction,
       roundSummary: this.roundSummary,
     };
