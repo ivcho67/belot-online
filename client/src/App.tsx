@@ -59,6 +59,10 @@ const SEQUENCE_ORDER: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
 export function App() {
   const [gameState, setGameState] = useState<any>(null);
+  const [myPosition, setMyPosition] = useState<PlayerPosition | null>(null);
+  const [playerName, setPlayerName] = useState('');
+  const [hasJoined, setHasJoined] = useState(false);
+
   const [sortDescending, setSortDescending] = useState(true);
   const [hoveredCutIndex, setHoveredCutIndex] = useState<number | null>(null);
   const [cutStep, setCutStep] = useState<number>(0);
@@ -66,7 +70,6 @@ export function App() {
   const [countdown, setCountdown] = useState(8);
   const [isCollectingVisual, setIsCollectingVisual] = useState(false);
 
-  // Deklaratsii (Obyavi) modal
   const [showDeclarationModal, setShowDeclarationModal] = useState(false);
   const [availableDeclarations, setAvailableDeclarations] = useState<DeclarationCandidate[]>([]);
   const [selectedDeclIds, setSelectedDeclIds] = useState<string[]>([]);
@@ -81,15 +84,15 @@ export function App() {
     const ws = new WebSocket(WS_URL);
     socketRef.current = ws;
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'JOIN_BOT_GAME' }));
-    };
-
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'GAME_STATE_UPDATE') {
         const payload = data.payload;
         setGameState(payload);
+
+        if (payload.myPosition && hasJoined) {
+          setMyPosition(payload.myPosition);
+        }
 
         if (payload.phase === 'CUTTING') {
           setHasPromptedDeclarations(false);
@@ -120,9 +123,8 @@ export function App() {
     };
 
     return () => ws.close();
-  }, []);
+  }, [hasJoined]);
 
-  // Timer za tablotot sled runda
   useEffect(() => {
     if (gameState?.phase === 'ROUND_OVER') {
       setCountdown(8);
@@ -133,7 +135,7 @@ export function App() {
     }
   }, [gameState?.phase]);
 
-  // Izchislyavane na obqvi pri purvata vzyatka
+  // Проверка за обяви при първа взятка
   useEffect(() => {
     if (!gameState || gameState.phase !== 'PLAYING' || hasPromptedDeclarations) return;
     if (gameState.currentTrickNumber !== 1) return;
@@ -145,7 +147,6 @@ export function App() {
     const hand: Card[] = gameState.myHand;
     const candidates: DeclarationCandidate[] = [];
 
-    // 1. Karetata
     const rankCounts: Record<Rank, Card[]> = {
       '7': [], '8': [], '9': [], '10': [], 'J': [], 'Q': [], 'K': [], 'A': []
     };
@@ -158,7 +159,6 @@ export function App() {
     if (rankCounts['K'].length === 4) candidates.push({ id: 'carre-k', type: 'КАРЕ', points: 100, label: 'КАРЕ', suit: 'SPADES', ranks: ['K', 'K', 'K', 'K'] });
     if (rankCounts['Q'].length === 4) candidates.push({ id: 'carre-q', type: 'КАРЕ', points: 100, label: 'КАРЕ', suit: 'SPADES', ranks: ['Q', 'Q', 'Q', 'Q'] });
 
-    // 2. Terci, kvarti, kvinti
     const suits: Suit[] = ['CLUBS', 'DIAMONDS', 'HEARTS', 'SPADES'];
     suits.forEach(suit => {
       const suitCards = hand.filter(c => c.suit === suit);
@@ -188,7 +188,6 @@ export function App() {
       }
     }
 
-    // 3. Belot
     suits.forEach(suit => {
       const isTrumpSuit = (contract === 'ALL_TRUMP' || contract === suit);
       if (isTrumpSuit) {
@@ -207,6 +206,18 @@ export function App() {
       setHasPromptedDeclarations(true);
     }
   }, [gameState?.phase, gameState?.currentTrickNumber, gameState?.myHand, hasPromptedDeclarations, gameState?.auction?.currentContract]);
+
+  const joinTable = (pos: PlayerPosition) => {
+    if (!playerName.trim()) return;
+    setMyPosition(pos);
+    setHasJoined(true);
+    socketRef.current?.send(
+      JSON.stringify({
+        type: 'JOIN_SEAT',
+        payload: { name: playerName, position: pos },
+      })
+    );
+  };
 
   const confirmDeclarations = () => {
     setShowDeclarationModal(false);
@@ -242,7 +253,8 @@ export function App() {
   };
 
   const isCardPlayable = (card: Card): boolean => {
-    if (!gameState || gameState.phase !== 'PLAYING' || gameState.currentPlayer !== 'SOUTH' || gameState.isResolvingTrick) {
+    const currentMyPos = myPosition || 'SOUTH';
+    if (!gameState || gameState.phase !== 'PLAYING' || gameState.currentPlayer !== currentMyPos || gameState.isResolvingTrick) {
       return false;
     }
 
@@ -278,7 +290,11 @@ export function App() {
       }
     }
 
-    const isPartnerWinning = (winner === 'NORTH');
+    const isPartnerWinning =
+      (currentMyPos === 'SOUTH' && winner === 'NORTH') ||
+      (currentMyPos === 'NORTH' && winner === 'SOUTH') ||
+      (currentMyPos === 'EAST' && winner === 'WEST') ||
+      (currentMyPos === 'WEST' && winner === 'EAST');
 
     if (contract === 'NO_TRUMP') {
       return hasLeadSuit ? card.suit === leadSuit : true;
@@ -350,23 +366,13 @@ export function App() {
     });
   }, [gameState?.myHand, gameState?.auction?.currentContract, sortDescending]);
 
-  if (!gameState) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-[#17384e] text-white">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-base font-bold tracking-wide">Зареждане на Belot.bg...</span>
-        </div>
-      </div>
-    );
-  }
-
-  const isMyTurnToCut = gameState.phase === 'CUTTING' && gameState.cutter === 'SOUTH';
-  const isMyTurnToBid = gameState.phase === 'BIDDING' && gameState.currentPlayer === 'SOUTH';
-  const isMyTurnToPlay = gameState.phase === 'PLAYING' && gameState.currentPlayer === 'SOUTH' && !gameState.isResolvingTrick;
+  const activeMyPos = myPosition || 'SOUTH';
+  const isMyTurnToCut = gameState?.phase === 'CUTTING' && gameState?.cutter === activeMyPos;
+  const isMyTurnToBid = gameState?.phase === 'BIDDING' && gameState?.currentPlayer === activeMyPos;
+  const isMyTurnToPlay = gameState?.phase === 'PLAYING' && gameState?.currentPlayer === activeMyPos && !gameState?.isResolvingTrick;
 
   const getCollectAnimClass = () => {
-    if (!isCollectingVisual || !gameState.trickWinner) return '';
+    if (!isCollectingVisual || !gameState?.trickWinner) return '';
     switch (gameState.trickWinner) {
       case 'SOUTH': return 'anim-collect-south';
       case 'NORTH': return 'anim-collect-north';
@@ -376,26 +382,100 @@ export function App() {
     }
   };
 
-  const summary = gameState.roundSummary;
+  const summary = gameState?.roundSummary;
+  const seats = gameState?.seats || {
+    SOUTH: { name: 'Свободно', isBot: true },
+    NORTH: { name: 'Свободно', isBot: true },
+    EAST: { name: 'Свободно', isBot: true },
+    WEST: { name: 'Свободно', isBot: true },
+  };
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#132f42] select-none overflow-hidden font-sans relative">
       
-      {/* Tablo za tochki gore vlyavo */}
+      {/* ЛОБИ ПРОЗОРЕЦ ЗА ПРИСЪЕДИНЯВАНЕ (ИМЕ + ИЗБОР НА МЯСТО/ОТБОР) */}
+      {!hasJoined && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md">
+          <div className="w-[500px] bg-[#102534] border-2 border-amber-500 rounded-3xl p-6 shadow-2xl flex flex-col gap-5 text-white">
+            <h1 className="text-2xl font-black text-center tracking-wider text-amber-400 uppercase">
+              Влез в играта (Belot Multiplayer)
+            </h1>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-slate-300">Твоето име:</label>
+              <input
+                type="text"
+                value={playerName}
+                onChange={e => setPlayerName(e.target.value)}
+                placeholder="Въведи псевдоним (напр. Ивайло)"
+                className="px-4 py-2.5 bg-[#0a1822] border border-slate-700 rounded-xl text-white font-bold outline-none focus:border-amber-400"
+              />
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <span className="text-xs font-black text-slate-400 uppercase tracking-wider">
+                Избери си място на масата:
+              </span>
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* Отбор НИЕ */}
+                <div className="flex flex-col gap-2 p-3 bg-[#0d1e2b] rounded-2xl border border-emerald-500/50">
+                  <span className="text-xs font-black text-emerald-400 uppercase">Отбор „НИЕ“</span>
+                  <button
+                    disabled={!playerName.trim()}
+                    onClick={() => joinTable('SOUTH')}
+                    className="py-2.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs cursor-pointer active:scale-95 transition-all"
+                  >
+                    Седни на ЮГ ({seats.SOUTH.name})
+                  </button>
+                  <button
+                    disabled={!playerName.trim()}
+                    onClick={() => joinTable('NORTH')}
+                    className="py-2.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs cursor-pointer active:scale-95 transition-all"
+                  >
+                    Седни на СЕВЕР ({seats.NORTH.name})
+                  </button>
+                </div>
+
+                {/* Отбор ВИЕ */}
+                <div className="flex flex-col gap-2 p-3 bg-[#0d1e2b] rounded-2xl border border-rose-500/50">
+                  <span className="text-xs font-black text-rose-400 uppercase">Отбор „ВИЕ“</span>
+                  <button
+                    disabled={!playerName.trim()}
+                    onClick={() => joinTable('EAST')}
+                    className="py-2.5 bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs cursor-pointer active:scale-95 transition-all"
+                  >
+                    Седни на ИЗТОК ({seats.EAST.name})
+                  </button>
+                  <button
+                    disabled={!playerName.trim()}
+                    onClick={() => joinTable('WEST')}
+                    className="py-2.5 bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs cursor-pointer active:scale-95 transition-all"
+                  >
+                    Седни на ЗАПАД ({seats.WEST.name})
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Табло за точки горе вляво */}
       <div className="absolute top-5 left-6 z-30 flex items-center gap-3">
         <div className="bg-[#0f2434]/95 border-2 border-[#1f4e70] rounded-2xl px-5 py-2.5 shadow-2xl flex items-center gap-6">
           <div className="flex flex-col items-center">
             <span className="text-xs font-black text-slate-300 tracking-wider">НИЕ</span>
-            <span className="text-2xl font-black text-amber-400">{gameState.scores.NORTH_SOUTH}</span>
+            <span className="text-2xl font-black text-amber-400">{gameState?.scores?.NORTH_SOUTH || 0}</span>
           </div>
           <div className="w-[1.5px] h-9 bg-slate-600/50"></div>
           <div className="flex flex-col items-center">
             <span className="text-xs font-black text-slate-300 tracking-wider">ВИЕ</span>
-            <span className="text-2xl font-black text-slate-100">{gameState.scores.EAST_WEST}</span>
+            <span className="text-2xl font-black text-slate-100">{gameState?.scores?.EAST_WEST || 0}</span>
           </div>
         </div>
 
-        {gameState.auction?.currentContract && (
+        {gameState?.auction?.currentContract && (
           <div className="bg-[#0f2434]/95 border-2 border-amber-500 rounded-2xl px-4 py-2 flex items-center gap-2 shadow-2xl">
             <span style={{ color: SUIT_HEX[gameState.auction.currentContract as Suit] || '#f59e0b' }} className="text-2xl font-bold leading-none">
               {SUIT_SYMBOLS[gameState.auction.currentContract as Suit] || '★'}
@@ -407,63 +487,68 @@ export function App() {
         )}
       </div>
 
-      {/* Masata */}
+      {/* Игрална маса */}
       <main className="flex-1 relative flex items-center justify-center p-4">
         <div className="relative w-[1060px] h-[700px] bg-[#23587c] rounded-[180px] border-[18px] border-[#163a52] shadow-2xl flex flex-col justify-between p-6 ring-4 ring-[#0d2230]/40">
 
-          {/* Sever (Bot 1) */}
+          {/* Север */}
           <div className="flex flex-col items-center relative">
             {speechBubbles['NORTH'] && (
               <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
                 {speechBubbles['NORTH']}
               </div>
             )}
-            <div className={`w-18 h-18 rounded-2xl border-2 flex flex-col items-center justify-center shadow-xl transition-all ${gameState.currentPlayer === 'NORTH' ? 'border-amber-400 bg-amber-400/20 scale-105 ring-2 ring-amber-400' : 'border-[#143952] bg-[#0f283a]'}`}>
-              <div className="w-11 h-11 bg-amber-600 rounded-full flex items-center justify-center text-xl shadow-inner">🤖</div>
-              <span className="text-[11px] font-bold text-slate-200 mt-0.5">Bot 1</span>
+            <div className={`w-18 h-18 rounded-2xl border-2 flex flex-col items-center justify-center shadow-xl transition-all ${gameState?.currentPlayer === 'NORTH' ? 'border-amber-400 bg-amber-400/20 scale-105 ring-2 ring-amber-400' : 'border-[#143952] bg-[#0f283a]'}`}>
+              <div className="w-11 h-11 bg-amber-600 rounded-full flex items-center justify-center text-xl shadow-inner">
+                {seats.NORTH.isBot ? '🤖' : '👤'}
+              </div>
+              <span className="text-[10px] font-bold text-slate-200 mt-0.5 truncate max-w-[65px]">
+                {seats.NORTH.name}
+              </span>
             </div>
-            {gameState.phase !== 'CUTTING' && (
+            {gameState?.phase !== 'CUTTING' && (
               <div className="flex gap-1.5 mt-2">
-                {Array.from({ length: gameState.handsOverview.NORTH.cardCount }).map((_, i) => (
+                {Array.from({ length: gameState?.handsOverview?.NORTH?.cardCount || 0 }).map((_, i) => (
                   <div key={i} style={{ animationDelay: `${i * 90}ms` }} className="w-8 h-12 bg-[#102d42] rounded-md border border-blue-400/60 shadow-md anim-deal-north"></div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Sredna liniq */}
+          {/* Средна линия */}
           <div className="flex justify-between items-center w-full px-6">
             
-            {/* Zapad (Bot 3) */}
+            {/* Запад */}
             <div className="flex flex-col items-center relative w-28">
               {speechBubbles['WEST'] && (
                 <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
                   {speechBubbles['WEST']}
                 </div>
               )}
-              <div className={`w-18 h-18 rounded-2xl border-2 flex flex-col items-center justify-center shadow-xl transition-all ${gameState.currentPlayer === 'WEST' ? 'border-amber-400 bg-amber-400/20 scale-105 ring-2 ring-amber-400' : 'border-[#143952] bg-[#0f283a]'}`}>
-                <div className="w-11 h-11 bg-purple-600 rounded-full flex items-center justify-center text-xl shadow-inner">👾</div>
-                <span className="text-[11px] font-bold text-slate-200 mt-0.5">Bot 3</span>
+              <div className={`w-18 h-18 rounded-2xl border-2 flex flex-col items-center justify-center shadow-xl transition-all ${gameState?.currentPlayer === 'WEST' ? 'border-amber-400 bg-amber-400/20 scale-105 ring-2 ring-amber-400' : 'border-[#143952] bg-[#0f283a]'}`}>
+                <div className="w-11 h-11 bg-purple-600 rounded-full flex items-center justify-center text-xl shadow-inner">
+                  {seats.WEST.isBot ? '👾' : '👤'}
+                </div>
+                <span className="text-[10px] font-bold text-slate-200 mt-0.5 truncate max-w-[65px]">
+                  {seats.WEST.name}
+                </span>
               </div>
-              {gameState.phase !== 'CUTTING' && (
+              {gameState?.phase !== 'CUTTING' && (
                 <div className="flex flex-col gap-1 mt-2">
-                  {Array.from({ length: gameState.handsOverview.WEST.cardCount }).map((_, i) => (
+                  {Array.from({ length: gameState?.handsOverview?.WEST?.cardCount || 0 }).map((_, i) => (
                     <div key={i} style={{ animationDelay: `${i * 90}ms` }} className="w-12 h-7 bg-[#102d42] rounded-md border border-blue-400/60 shadow-md anim-deal-west"></div>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Centar: Vzyatka */}
+            {/* Център: Взятка */}
             <div className="relative w-[560px] h-[330px] flex items-center justify-center">
 
-              {gameState.phase === 'CUTTING' && (
+              {gameState?.phase === 'CUTTING' && (
                 <div className="flex flex-col items-center gap-3 w-full animate-in fade-in duration-300">
                   <span className="text-2xl font-black text-white tracking-wider uppercase drop-shadow-md">
-                    {isMyTurnToCut ? 'ТИ ЦЕПИШ' : `Цепи се от ${gameState.cutter}`}
-                  </span>
-                  <span className="text-xs text-blue-200 font-bold mb-2">
-                    {isMyTurnToCut ? 'IvayloM4354 цепи картите' : 'Изчакване...'}
+                    {isMyTurnToCut ? 'ТИ ЦЕПИШ' : `Цепи се от ${seats[gameState?.cutter as PlayerPosition]?.name}`}
                   </span>
 
                   <div className="relative w-[480px] h-[140px] flex items-center justify-center">
@@ -496,8 +581,8 @@ export function App() {
                 </div>
               )}
 
-              {/* Dqsnoto teste za razdavane */}
-              {gameState.phase !== 'CUTTING' && (
+              {/* Дясно тесте */}
+              {gameState?.phase !== 'CUTTING' && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 w-20 h-28 bg-[#102d42] rounded-2xl border-2 border-blue-400/60 shadow-2xl flex items-center justify-center pointer-events-none opacity-85 z-10">
                   <div className="w-16 h-22 border border-blue-300/30 rounded-xl flex items-center justify-center">
                     <span className="text-3xl text-blue-300/40 font-bold">♠</span>
@@ -505,10 +590,10 @@ export function App() {
                 </div>
               )}
 
-              {/* Vzyatkata v centura */}
-              {gameState.phase !== 'CUTTING' && (
+              {/* Взятката в центъра */}
+              {gameState?.phase !== 'CUTTING' && (
                 <div className="w-full h-full relative flex items-center justify-center">
-                  {gameState.currentTrickCards.map((tc: any, idx: number) => {
+                  {gameState?.currentTrickCards?.map((tc: any, idx: number) => {
                     let throwAnim = '';
                     let slotOffset = '';
 
@@ -557,7 +642,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Naddavane */}
+              {/* Панел за наддаване */}
               {isMyTurnToBid && (
                 <div className="absolute z-40 bg-white rounded-3xl shadow-2xl border-2 border-slate-300 p-4 flex flex-col items-center gap-3 animate-in zoom-in-90 duration-200">
                   <div className="grid grid-cols-2 gap-2.5 w-72">
@@ -588,20 +673,24 @@ export function App() {
 
             </div>
 
-            {/* Iztok (Bot 2) */}
+            {/* Изток */}
             <div className="flex flex-col items-center relative w-28">
               {speechBubbles['EAST'] && (
                 <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
                   {speechBubbles['EAST']}
                 </div>
               )}
-              <div className={`w-18 h-18 rounded-2xl border-2 flex flex-col items-center justify-center shadow-xl transition-all ${gameState.currentPlayer === 'EAST' ? 'border-amber-400 bg-amber-400/20 scale-105 ring-2 ring-amber-400' : 'border-[#143952] bg-[#0f283a]'}`}>
-                <div className="w-11 h-11 bg-emerald-600 rounded-full flex items-center justify-center text-xl shadow-inner">🤖</div>
-                <span className="text-[11px] font-bold text-slate-200 mt-0.5">Bot 2</span>
+              <div className={`w-18 h-18 rounded-2xl border-2 flex flex-col items-center justify-center shadow-xl transition-all ${gameState?.currentPlayer === 'EAST' ? 'border-amber-400 bg-amber-400/20 scale-105 ring-2 ring-amber-400' : 'border-[#143952] bg-[#0f283a]'}`}>
+                <div className="w-11 h-11 bg-emerald-600 rounded-full flex items-center justify-center text-xl shadow-inner">
+                  {seats.EAST.isBot ? '🤖' : '👤'}
+                </div>
+                <span className="text-[10px] font-bold text-slate-200 mt-0.5 truncate max-w-[65px]">
+                  {seats.EAST.name}
+                </span>
               </div>
-              {gameState.phase !== 'CUTTING' && (
+              {gameState?.phase !== 'CUTTING' && (
                 <div className="flex flex-col gap-1 mt-2">
-                  {Array.from({ length: gameState.handsOverview.EAST.cardCount }).map((_, i) => (
+                  {Array.from({ length: gameState?.handsOverview?.EAST?.cardCount || 0 }).map((_, i) => (
                     <div key={i} style={{ animationDelay: `${i * 90}ms` }} className="w-12 h-7 bg-[#102d42] rounded-md border border-blue-400/60 shadow-md anim-deal-east"></div>
                   ))}
                 </div>
@@ -610,16 +699,16 @@ export function App() {
 
           </div>
 
-          {/* Yug (Igrachut) */}
+          {/* Юг (Твоята позиция по подразбиране или текущия играч) */}
           <div className="flex flex-col items-center relative">
-            {speechBubbles['SOUTH'] && (
+            {speechBubbles[activeMyPos] && (
               <div className="absolute -top-12 px-4 py-1.5 bg-white text-slate-900 font-black text-sm rounded-xl shadow-2xl border-2 border-amber-400 animate-in zoom-in-75 duration-200 z-30">
-                {speechBubbles['SOUTH']}
+                {speechBubbles[activeMyPos]}
               </div>
             )}
 
-            {/* BUTON ZA SORTIRANE (NAD KARTITE) */}
-            {gameState.phase !== 'CUTTING' && gameState.myHand && gameState.myHand.length > 0 && (
+            {/* Бутон за сортиране */}
+            {gameState?.phase !== 'CUTTING' && gameState?.myHand && gameState.myHand.length > 0 && (
               <div className="mb-2 z-20">
                 <button
                   onClick={() => setSortDescending(!sortDescending)}
@@ -632,7 +721,7 @@ export function App() {
               </div>
             )}
 
-            {gameState.phase !== 'CUTTING' && (
+            {gameState?.phase !== 'CUTTING' && (
               <div className="flex justify-center items-end h-44 mb-3 relative w-full">
                 {sortedMyHand.map((c: Card, idx: number) => {
                   const total = sortedMyHand.length;
@@ -677,13 +766,13 @@ export function App() {
             )}
 
             <div className={`px-5 py-1.5 rounded-full text-xs font-black tracking-wide shadow-md ${isMyTurnToPlay ? 'bg-amber-400 text-slate-950 scale-105' : 'bg-[#0f2434] text-slate-200 border border-slate-700'}`}>
-              IvayloM4354 (Ти)
+              {seats[activeMyPos]?.name || 'Ти'} ({activeMyPos})
             </div>
           </div>
 
         </div>
 
-        {/* MODAL "ИЗБЕРИ ДЕКЛАРАЦИЯ" (ОТ СКРИЙНШОТОВЕТЕ) */}
+        {/* Модал за декларации */}
         {showDeclarationModal && availableDeclarations.length > 0 && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="w-[420px] bg-[#12283a] border-2 border-amber-500/80 rounded-2xl shadow-2xl p-5 flex flex-col gap-4 text-white">
@@ -741,12 +830,11 @@ export function App() {
           </div>
         )}
 
-        {/* ТАБЛО С РЕЗУЛТАТИТЕ СЛЕД РУНДА (ОТ СКРИЙНШОТ 3) */}
-        {gameState.phase === 'ROUND_OVER' && summary && (
+        {/* Табло в края на рунда */}
+        {gameState?.phase === 'ROUND_OVER' && summary && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-300">
             <div className="w-[520px] bg-[#0c1824] border-2 border-amber-500/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100">
               
-              {/* Gorna lenta s krugla ikona na dogovora */}
               <div className="flex items-center justify-center gap-3 py-3.5 bg-[#08121b] border-b border-amber-500/40">
                 <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow">
                   <span className="text-xl font-black text-red-600">J</span>
@@ -754,17 +842,14 @@ export function App() {
                 <span className="text-lg font-black tracking-wider text-white uppercase">{summary.contractTitle}</span>
               </div>
 
-              {/* Koloni: NIE i VIE */}
               <div className="grid grid-cols-12 px-8 pt-4 pb-2 text-amber-400 font-black text-base tracking-wider">
                 <div className="col-span-6"></div>
                 <div className="col-span-3 text-center">НИЕ</div>
                 <div className="col-span-3 text-center">ВИЕ</div>
               </div>
 
-              {/* Redove */}
               <div className="flex flex-col text-sm font-semibold divide-y divide-amber-500/20 px-8">
                 
-                {/* Beloti */}
                 <div className="grid grid-cols-12 py-3 items-center">
                   <div className="col-span-6 text-slate-300 tracking-wide font-bold">БЕЛОТИ</div>
                   <div className="col-span-3 flex justify-center items-center gap-1.5 font-black text-base">
@@ -782,7 +867,6 @@ export function App() {
                   <div className="col-span-3 text-center font-black text-base">{summary.belotPointsEW}</div>
                 </div>
 
-                {/* Obyavyavane */}
                 <div className="grid grid-cols-12 py-3 items-center">
                   <div className="col-span-6 text-slate-300 tracking-wide font-bold">ОБЯВЯВАНЕ</div>
                   <div className="col-span-3 flex justify-center items-center gap-1.5 font-black text-base">
@@ -798,17 +882,17 @@ export function App() {
                       <span>0</span>
                     )}
                   </div>
-                  <div className="col-span-3 text-center font-black text-base">{summary.declarationsEW?.length ? summary.declarationsEW.map((d: any) => d.points).reduce((a: number, b: number) => a + b, 0) : '0'}</div>
+                  <div className="col-span-3 text-center font-black text-base">
+                    {summary.declarationsEW?.length ? summary.declarationsEW.map((d: any) => d.points).reduce((a: number, b: number) => a + b, 0) : '0'}
+                  </div>
                 </div>
 
-                {/* Ot racete */}
                 <div className="grid grid-cols-12 py-3 items-center">
                   <div className="col-span-6 text-slate-300 tracking-wide font-bold">ОТ РЪЦЕТЕ</div>
                   <div className="col-span-3 text-center font-black text-base">{summary.handPointsNS}</div>
                   <div className="col-span-3 text-center font-black text-base">{summary.handPointsEW}</div>
                 </div>
 
-                {/* Sbor s oranjeva strelka pri vutre */}
                 <div className="grid grid-cols-12 py-3 items-center">
                   <div className="col-span-6 text-slate-300 tracking-wide font-bold">СБОР</div>
                   <div className="col-span-3 flex justify-center items-center gap-2 font-black text-base text-slate-200">
@@ -820,7 +904,6 @@ export function App() {
                   <div className="col-span-3 text-center font-black text-base text-slate-200">{summary.totalPointsEW}</div>
                 </div>
 
-                {/* Izhod */}
                 <div className="grid grid-cols-12 py-3 items-center">
                   <div className="col-span-6 text-slate-300 tracking-wide font-bold">ИЗХОД</div>
                   <div className="col-span-6 text-center font-black text-base text-amber-300 uppercase">
@@ -829,14 +912,12 @@ export function App() {
                 </div>
               </div>
 
-              {/* Oranjeviq bar REZULTAT */}
               <div className="grid grid-cols-12 px-8 py-3.5 bg-amber-500 text-slate-950 font-black text-base items-center mt-3 shadow-inner">
                 <div className="col-span-6 tracking-wider text-base">РЕЗУЛТАТ</div>
                 <div className="col-span-3 text-center text-xl">{summary.scoreAddedNS}</div>
                 <div className="col-span-3 text-center text-xl">{summary.scoreAddedEW}</div>
               </div>
 
-              {/* Dolno otbroqvane */}
               <div className="py-2.5 bg-[#08121b] text-center text-xs text-slate-400 font-bold tracking-wide border-t border-slate-800">
                 Играта продължава след {countdown} сек.
               </div>

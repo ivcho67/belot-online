@@ -1,3 +1,8 @@
+/**
+ * File: server.ts
+ * Version: v5.0.0 - Full Multiplayer Engine with Seat Selection
+ */
+
 import { WebSocketServer, WebSocket } from 'ws';
 
 export type Suit = 'CLUBS' | 'DIAMONDS' | 'HEARTS' | 'SPADES';
@@ -5,7 +10,7 @@ export type Rank = '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K' | 'A';
 export type ContractType = Suit | 'NO_TRUMP' | 'ALL_TRUMP';
 export type Multiplier = 'NORMAL' | 'CONTRA' | 'RECONTRA';
 export type PlayerPosition = 'NORTH' | 'EAST' | 'SOUTH' | 'WEST';
-export type GamePhase = 'CUTTING' | 'BIDDING' | 'PLAYING' | 'ROUND_OVER';
+export type GamePhase = 'LOBBY' | 'CUTTING' | 'BIDDING' | 'PLAYING' | 'ROUND_OVER';
 
 export interface Card {
   id: string;
@@ -37,6 +42,12 @@ export interface RoundSummary {
   scoreAddedEW: number;
 }
 
+interface ConnectedPlayer {
+  ws: WebSocket;
+  name: string;
+  position: PlayerPosition;
+}
+
 const SUITS: Suit[] = ['CLUBS', 'DIAMONDS', 'HEARTS', 'SPADES'];
 const RANKS: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
@@ -47,7 +58,6 @@ const NEXT_PLAYER: Record<PlayerPosition, PlayerPosition> = {
   WEST: 'SOUTH',
 };
 
-// Взятъчна сила на картите
 const TRUMP_POWER: Record<Rank, number> = {
   '7': 0, '8': 1, 'Q': 2, 'K': 3, '10': 4, 'A': 5, '9': 6, 'J': 7
 };
@@ -56,7 +66,6 @@ const NON_TRUMP_POWER: Record<Rank, number> = {
   '7': 0, '8': 1, '9': 2, 'J': 3, 'Q': 4, 'K': 5, '10': 6, 'A': 7
 };
 
-// Точкова стойност на картите
 const TRUMP_VALUES: Record<Rank, number> = {
   '7': 0, '8': 0, 'Q': 3, 'K': 4, '10': 10, 'A': 11, '9': 14, 'J': 20
 };
@@ -65,8 +74,15 @@ const NON_TRUMP_VALUES: Record<Rank, number> = {
   '7': 0, '8': 0, '9': 0, 'J': 2, 'Q': 3, 'K': 4, '10': 10, 'A': 11
 };
 
-class BelotGameEngine {
-  public phase: GamePhase = 'CUTTING';
+class MultiplayerBelotRoom {
+  public phase: GamePhase = 'LOBBY';
+  public seats: Record<PlayerPosition, { name: string; isBot: boolean }> = {
+    SOUTH: { name: 'Свободно', isBot: true },
+    NORTH: { name: 'Свободно', isBot: true },
+    EAST: { name: 'Свободно', isBot: true },
+    WEST: { name: 'Свободно', isBot: true },
+  };
+
   public dealer: PlayerPosition = 'WEST';
   public cutter: PlayerPosition = 'SOUTH';
   public currentPlayer: PlayerPosition = 'SOUTH';
@@ -92,10 +108,6 @@ class BelotGameEngine {
   public lastAction?: { player: PlayerPosition; text: string };
   public submittedDeclarations: { player: PlayerPosition; item: DeclarationItem }[] = [];
   public roundSummary: RoundSummary | null = null;
-
-  constructor() {
-    this.startNewRound();
-  }
 
   public startNewRound() {
     this.deck = this.buildDeck();
@@ -166,8 +178,13 @@ class BelotGameEngine {
       this.lastAction = { player, text: 'ПАС' };
 
       if (!this.auction.currentContract && this.auction.consecutivePasses >= 4) {
-        this.dealer = NEXT_PLAYER[this.dealer];
-        this.startNewRound();
+        this.auction.currentContract = 'ALL_TRUMP';
+        this.auction.declarer = player;
+        this.lastAction = { player, text: 'ВСИЧКО КОЗ' };
+        this.dealRemainingThree();
+        this.phase = 'PLAYING';
+        this.currentTrickNumber = 1;
+        this.currentPlayer = NEXT_PLAYER[this.dealer];
         return;
       }
 
@@ -184,14 +201,6 @@ class BelotGameEngine {
       this.auction.multiplier = 'NORMAL';
       this.auction.consecutivePasses = 0;
       this.lastAction = { player, text: contract };
-    } else if (bidType === 'CONTRA') {
-      this.auction.multiplier = 'CONTRA';
-      this.auction.consecutivePasses = 0;
-      this.lastAction = { player, text: 'КОНТРА' };
-    } else if (bidType === 'RECONTRA') {
-      this.auction.multiplier = 'RECONTRA';
-      this.auction.consecutivePasses = 0;
-      this.lastAction = { player, text: 'РЕКОНТРА' };
     }
 
     this.currentPlayer = NEXT_PLAYER[this.currentPlayer];
@@ -204,9 +213,6 @@ class BelotGameEngine {
     });
   }
 
-  /**
-   * СТРОГО КРАЙНО ОПРЕДЕЛЯНЕ НА ПОБЕДИТЕЛЯ ВЪВ ВЗЯТКАТА
-   */
   public getCurrentTrickWinner(): { winner: PlayerPosition; highestPower: number } {
     const trick = this.currentTrickCards;
     if (!trick || trick.length === 0) {
@@ -218,7 +224,6 @@ class BelotGameEngine {
     const leadSuit = leadCard.suit;
     let winner = trick[0].player;
 
-    // 1. ВСИЧКО КОЗ (ALL_TRUMP): печели най-високата от ИСКАНАТА боя!
     if (contract === 'ALL_TRUMP') {
       let highestPower = TRUMP_POWER[leadCard.rank];
       for (let i = 1; i < trick.length; i++) {
@@ -234,7 +239,6 @@ class BelotGameEngine {
       return { winner, highestPower };
     }
 
-    // 2. БЕЗ КОЗ (NO_TRUMP): печели най-високата от ИСКАНАТА боя!
     if (contract === 'NO_TRUMP') {
       let highestPower = NON_TRUMP_POWER[leadCard.rank];
       for (let i = 1; i < trick.length; i++) {
@@ -250,7 +254,6 @@ class BelotGameEngine {
       return { winner, highestPower };
     }
 
-    // 3. ИГРА НА БОЯ
     const trumpSuit = contract as Suit;
     let hasTrump = leadSuit === trumpSuit;
     let highestTrumpPower = hasTrump ? TRUMP_POWER[leadCard.rank] : -1;
@@ -282,9 +285,6 @@ class BelotGameEngine {
     };
   }
 
-  /**
-   * СТРОГИ ПРАВИЛА ЗА ВАЛИДНОСТ НА КАРТИТЕ
-   */
   public isCardValidForPlay(player: PlayerPosition, card: Card): boolean {
     const hand = this.hands[player];
     const contract = this.auction.currentContract!;
@@ -301,13 +301,11 @@ class BelotGameEngine {
       (player === 'EAST' && winner === 'WEST') ||
       (player === 'WEST' && winner === 'EAST');
 
-    // БЕЗ КОЗ: Задължително отговаряне на боята, няма качване
     if (contract === 'NO_TRUMP') {
       if (hasLeadSuit) return card.suit === leadSuit;
       return true;
     }
 
-    // ВСИЧКО КОЗ: Задължително отговаряне и задължително качване[cite: 14]
     if (contract === 'ALL_TRUMP') {
       if (hasLeadSuit) {
         if (card.suit !== leadSuit) return false;
@@ -315,10 +313,9 @@ class BelotGameEngine {
         if (higherInLead.length > 0) return TRUMP_POWER[card.rank] > highestPower;
         return true;
       }
-      return true; // няма от боята -> свободен ход[cite: 14]
+      return true;
     }
 
-    // ИГРА НА БОЯ
     const trumpSuit = contract as Suit;
     const isLeadTrump = (leadSuit === trumpSuit);
 
@@ -336,10 +333,8 @@ class BelotGameEngine {
       return card.suit === leadSuit;
     }
 
-    // Няма от исканата боя:
-    if (isPartnerWinning) return true; // Партньорът води -> не цакаме[cite: 14]
+    if (isPartnerWinning) return true;
 
-    // Противникът води -> задължително цакане и надцакване[cite: 14]
     const trumps = hand.filter(c => c.suit === trumpSuit);
     if (trumps.length > 0) {
       if (card.suit !== trumpSuit) return false;
@@ -387,7 +382,6 @@ class BelotGameEngine {
       }
     }
 
-    // Премия за последно 10[cite: 14]
     if (this.currentTrickNumber === 8) {
       trickSum += (contract === 'NO_TRUMP' ? 20 : 10);
     }
@@ -416,9 +410,6 @@ class BelotGameEngine {
     }, 2200);
   }
 
-  /**
-   * ТОЧКУВАНЕ: ВЪТРЕ, КАПО, ВИСЯЩИ ТОЧКИ И ЗАКРЪГЛЯНЕ ПО BELOT.BG[cite: 14]
-   */
   private finalizeRound() {
     this.phase = 'ROUND_OVER';
     const declarer = this.auction.declarer!;
@@ -433,7 +424,6 @@ class BelotGameEngine {
     const declsNSFormatted: { label: string; points: number }[] = [];
     const declsEWFormatted: { label: string; points: number }[] = [];
 
-    // При Без коз не важат обяви[cite: 14]
     if (contract !== 'NO_TRUMP') {
       this.submittedDeclarations.forEach(sub => {
         const isNS = (sub.player === 'SOUTH' || sub.player === 'NORTH');
@@ -465,7 +455,6 @@ class BelotGameEngine {
     let scoreEW = 0;
     let outcomeText = 'ИЗКАРАНА';
 
-    // 1. Проверка за КАПО (ВАЛАТ): 8 взятки = +90 точки (+9 в записа)[cite: 14]
     const isCapotNS = (this.tricksWon.NORTH_SOUTH === 8);
     const isCapotEW = (this.tricksWon.EAST_WEST === 8);
 
@@ -480,7 +469,6 @@ class BelotGameEngine {
       this.hangingPoints = 0;
       outcomeText = 'КАПО (ВАЛАТ)!';
     } else if (declarerTotal > defenderTotal) {
-      // ИЗКАРАНА: стриктно повече точки[cite: 14]
       scoreNS = Math.round(totalRawNS / 10);
       scoreEW = Math.round(totalRawEW / 10);
       if (declarerIsNS) scoreNS += this.hangingPoints;
@@ -488,7 +476,6 @@ class BelotGameEngine {
       this.hangingPoints = 0;
       outcomeText = 'ИЗКАРАНА';
     } else if (declarerTotal < defenderTotal) {
-      // ВЪТРЕ: всички точки отиват при защитниците[cite: 14]
       const allPoints = Math.round((totalRawNS + totalRawEW) / 10) + this.hangingPoints;
       this.hangingPoints = 0;
       if (declarerIsNS) {
@@ -500,7 +487,6 @@ class BelotGameEngine {
       }
       outcomeText = 'ВЪТРЕ';
     } else {
-      // ВИСЯЩИ ТОЧКИ: абсолютно равен резултат[cite: 14]
       const defScore = Math.round(defenderTotal / 10);
       const decScore = Math.round(declarerTotal / 10);
       this.hangingPoints += decScore;
@@ -513,15 +499,6 @@ class BelotGameEngine {
         scoreNS = defScore;
       }
       outcomeText = 'ВИСЯЩИ ТОЧКИ';
-    }
-
-    // Контра / Реконтра[cite: 14]
-    if (this.auction.multiplier === 'CONTRA') {
-      scoreNS *= 2;
-      scoreEW *= 2;
-    } else if (this.auction.multiplier === 'RECONTRA') {
-      scoreNS *= 4;
-      scoreEW *= 4;
     }
 
     this.scores.NORTH_SOUTH += scoreNS;
@@ -553,7 +530,6 @@ class BelotGameEngine {
 
     broadcastState();
 
-    // 8.5 секунди фиксирано показване на модала
     setTimeout(() => {
       this.dealer = NEXT_PLAYER[this.dealer];
       this.startNewRound();
@@ -561,15 +537,17 @@ class BelotGameEngine {
     }, 8500);
   }
 
-  public getPayloadFor(targetPlayer: PlayerPosition = 'SOUTH') {
+  public getPayloadFor(targetPosition: PlayerPosition) {
     return {
       phase: this.phase,
+      seats: this.seats,
+      myPosition: targetPosition,
       dealer: this.dealer,
       cutter: this.cutter,
       currentPlayer: this.currentPlayer,
       auction: this.auction,
       declarer: this.auction.declarer,
-      myHand: this.hands[targetPlayer],
+      myHand: this.hands[targetPosition],
       handsOverview: {
         NORTH: { cardCount: this.hands.NORTH.length },
         EAST: { cardCount: this.hands.EAST.length },
@@ -590,15 +568,22 @@ class BelotGameEngine {
 
 const PORT = Number(process.env.PORT) || 8080;
 const wss = new WebSocketServer({ port: PORT });
-const game = new BelotGameEngine();
+const room = new MultiplayerBelotRoom();
+const clientsMap = new Map<WebSocket, ConnectedPlayer>();
 
 function broadcastState() {
-  const payload = game.getPayloadFor('SOUTH');
-  const msg = JSON.stringify({ type: 'GAME_STATE_UPDATE', payload });
+  clientsMap.forEach((player, ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      const payload = room.getPayloadFor(player.position);
+      ws.send(JSON.stringify({ type: 'GAME_STATE_UPDATE', payload }));
+    }
+  });
 
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(msg);
+  // За клиенти, които още не са седнали (в лобито)
+  wss.clients.forEach(ws => {
+    if (!clientsMap.has(ws) && ws.readyState === WebSocket.OPEN) {
+      const payload = room.getPayloadFor('SOUTH');
+      ws.send(JSON.stringify({ type: 'GAME_STATE_UPDATE', payload }));
     }
   });
 
@@ -606,43 +591,46 @@ function broadcastState() {
 }
 
 function handleBotNextAction() {
-  if (game.isResolvingTrick || game.phase === 'ROUND_OVER') return;
+  if (room.isResolvingTrick || room.phase === 'ROUND_OVER' || room.phase === 'LOBBY') return;
 
-  if (game.phase === 'CUTTING' && game.cutter !== 'SOUTH') {
+  const currentSeat = room.seats[room.currentPlayer];
+  if (!currentSeat.isBot) return; // Реален човек е на ход, ботът не се намесва
+
+  if (room.phase === 'CUTTING') {
     setTimeout(() => {
-      game.cutDeck(16);
+      room.cutDeck(16);
       broadcastState();
     }, 900);
     return;
   }
 
-  if (game.phase === 'BIDDING' && game.currentPlayer !== 'SOUTH') {
+  if (room.phase === 'BIDDING') {
     setTimeout(() => {
-      const hand = game.hands[game.currentPlayer];
+      const hand = room.hands[room.currentPlayer];
       const hasJacks = hand.filter(c => c.rank === 'J').length;
       const hasAces = hand.filter(c => c.rank === 'A').length;
 
-      if (!game.auction.currentContract && (hasJacks >= 2 || hasAces >= 2)) {
-        game.makeBid(game.currentPlayer, 'CONTRACT', 'ALL_TRUMP');
+      if (!room.auction.currentContract && (hasJacks >= 2 || hasAces >= 2)) {
+        room.makeBid(room.currentPlayer, 'CONTRACT', 'ALL_TRUMP');
       } else {
-        game.makeBid(game.currentPlayer, 'PASS');
+        room.makeBid(room.currentPlayer, 'PASS');
       }
       broadcastState();
     }, 1100);
     return;
   }
 
-  if (game.phase === 'PLAYING' && game.currentPlayer !== 'SOUTH') {
+  if (room.phase === 'PLAYING') {
     setTimeout(() => {
-      const botPos = game.currentPlayer;
-      const botCards = game.hands[botPos];
+      const botPos = room.currentPlayer;
+      const botCards = room.hands[botPos];
 
       if (!botCards || botCards.length === 0) return;
 
-      const validCards = botCards.filter(c => game.isCardValidForPlay(botPos, c));
+      const validCards = botCards.filter(c => room.isCardValidForPlay(botPos, c));
       const chosenCard = validCards.length > 0 ? validCards[0] : botCards[0];
 
-      game.playCard(botPos, chosenCard);
+      room.playCard(botPos, chosenCard);
       broadcastState();
     }, 1250);
   }
@@ -656,34 +644,58 @@ wss.on('connection', ws => {
       const data = JSON.parse(rawMsg.toString());
 
       switch (data.type) {
-        case 'JOIN_BOT_GAME':
+        case 'JOIN_SEAT': {
+          const { name, position } = data.payload as { name: string; position: PlayerPosition };
+          room.seats[position] = { name: name.trim() || 'Играч', isBot: false };
+          clientsMap.set(ws, { ws, name, position });
+
+          // Ако има поне един играч и сме в LOBBY, стартираме играта
+          if (room.phase === 'LOBBY') {
+            room.startNewRound();
+          }
           broadcastState();
           break;
+        }
 
         case 'CUT_DECK':
-          game.cutDeck(data.payload.cutIndex);
+          room.cutDeck(data.payload.cutIndex);
           broadcastState();
           break;
 
-        case 'MAKE_BID':
-          game.makeBid('SOUTH', data.payload.bidType, data.payload.contract);
+        case 'MAKE_BID': {
+          const player = clientsMap.get(ws)?.position || 'SOUTH';
+          room.makeBid(player, data.payload.bidType, data.payload.contract);
           broadcastState();
           break;
+        }
 
-        case 'SUBMIT_DECLARATIONS':
-          game.addDeclarations('SOUTH', data.payload.declarations);
+        case 'SUBMIT_DECLARATIONS': {
+          const player = clientsMap.get(ws)?.position || 'SOUTH';
+          room.addDeclarations(player, data.payload.declarations);
           broadcastState();
           break;
+        }
 
-        case 'PLAY_CARD':
-          game.playCard('SOUTH', data.payload.card);
+        case 'PLAY_CARD': {
+          const player = clientsMap.get(ws)?.position || 'SOUTH';
+          room.playCard(player, data.payload.card);
           broadcastState();
           break;
+        }
       }
     } catch (e) {
       console.error(e);
     }
   });
+
+  ws.on('close', () => {
+    const player = clientsMap.get(ws);
+    if (player) {
+      room.seats[player.position] = { name: `Бот (${player.position})`, isBot: true };
+      clientsMap.delete(ws);
+      broadcastState();
+    }
+  });
 });
 
-console.log(`[Belot Server] Live on port ${PORT}`);
+console.log(`[Belot Multiplayer Server] Live on port ${PORT}`);
