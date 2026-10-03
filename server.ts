@@ -140,13 +140,13 @@ class BelotRoom {
   }
 
   public getHumanCount(): number {
-    return Object.values(this.seats).filter(s => !s.isBot).length;
+    return Object.values(this.seats).filter(s => !s.isBot && s.ws && s.ws.readyState === WebSocket.OPEN).length;
   }
 
   public startGameWithCurrentOrBots() {
-    // Zapulvame praznite sedalki s botove i minavame kum cepene
     (['SOUTH', 'NORTH', 'EAST', 'WEST'] as PlayerPosition[]).forEach(pos => {
-      if (!this.seats[pos] || this.seats[pos].isBot) {
+      const s = this.seats[pos];
+      if (!s || s.isBot || !s.ws || s.ws.readyState !== WebSocket.OPEN) {
         this.seats[pos] = { name: `Bot ${pos}`, isBot: true };
       }
     });
@@ -663,11 +663,15 @@ function handleBotNextAction(room: BelotRoom) {
   if (room.isResolvingTrick || room.phase === 'ROUND_OVER' || room.phase === 'LOBBY') return;
 
   const currentSeat = room.seats[room.currentPlayer];
-  if (!currentSeat.isBot) return;
+  // 100% ZALYUCHENIE: AKO SEDALKATA E NA REALEN CHOVEK S RABOTESHT SOKET, BOTUT NIKOGA NE PIPA!
+  if (!currentSeat.isBot && currentSeat.ws && currentSeat.ws.readyState === WebSocket.OPEN) {
+    return;
+  }
 
   if (room.phase === 'CUTTING') {
     room.botActionTimer = setTimeout(() => {
-      if (room.seats[room.cutter].isBot) {
+      const cutterSeat = room.seats[room.cutter];
+      if (cutterSeat.isBot || !cutterSeat.ws || cutterSeat.ws.readyState !== WebSocket.OPEN) {
         room.cutDeck(16);
         broadcastRoom(room.roomId);
       }
@@ -677,7 +681,8 @@ function handleBotNextAction(room: BelotRoom) {
 
   if (room.phase === 'BIDDING') {
     room.botActionTimer = setTimeout(() => {
-      if (room.seats[room.currentPlayer].isBot) {
+      const curSeat = room.seats[room.currentPlayer];
+      if (curSeat.isBot || !curSeat.ws || curSeat.ws.readyState !== WebSocket.OPEN) {
         const hand = room.hands[room.currentPlayer];
         const hasJacks = hand.filter(c => c.rank === 'J').length;
         const hasAces = hand.filter(c => c.rank === 'A').length;
@@ -695,7 +700,8 @@ function handleBotNextAction(room: BelotRoom) {
 
   if (room.phase === 'PLAYING') {
     room.botActionTimer = setTimeout(() => {
-      if (room.seats[room.currentPlayer].isBot) {
+      const curSeat = room.seats[room.currentPlayer];
+      if (curSeat.isBot || !curSeat.ws || curSeat.ws.readyState !== WebSocket.OPEN) {
         const botPos = room.currentPlayer;
         const botCards = room.hands[botPos];
 
@@ -738,7 +744,6 @@ wss.on('connection', ws => {
           clientToPosition.delete(ws);
           const targetRoom = getOrCreateRoom(newRoomId);
 
-          // AKO NQMA HORA V NOVATA STAQ -> ZADULZHITELNO RESET DO CHISTO 0:0
           if (targetRoom.getHumanCount() === 0) {
             targetRoom.resetRoomToFreshGame();
           }
@@ -749,7 +754,6 @@ wss.on('connection', ws => {
         }
 
         case 'START_WITH_BOTS': {
-          // Igrachut natisna butona "Produlzhi s botove" v lobito
           if (room.phase === 'LOBBY') {
             room.startGameWithCurrentOrBots();
             broadcastRoom(room.roomId);
@@ -766,7 +770,7 @@ wss.on('connection', ws => {
         case 'JOIN_SEAT': {
           const { name, position } = data.payload as { name: string; position: PlayerPosition };
 
-          if (!room.seats[position].isBot && room.seats[position].ws !== ws) {
+          if (!room.seats[position].isBot && room.seats[position].ws && room.seats[position].ws !== ws && room.seats[position].ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'SEAT_TAKEN_ERROR', message: 'Мястото вече е заето от друг играч!' }));
             return;
           }
@@ -784,7 +788,6 @@ wss.on('connection', ws => {
           clientToPosition.set(ws, position);
           room.cancelBotAction();
 
-          // AKO SA SEDNALI TOCHNO 4-MA DUSHI -> STARTIRAME CEPENE AVTOMATICHNO!
           if (room.phase === 'LOBBY' && room.getHumanCount() === 4) {
             room.startNewRound();
           }
@@ -795,7 +798,7 @@ wss.on('connection', ws => {
 
         case 'CUT_DECK': {
           const p = clientToPosition.get(ws);
-          if (p && p === room.cutter && !room.seats[p].isBot) {
+          if (p && p === room.cutter && room.seats[p].ws === ws) {
             room.cutDeck(data.payload.cutIndex);
             broadcastRoom(room.roomId);
           }
@@ -804,7 +807,7 @@ wss.on('connection', ws => {
 
         case 'MAKE_BID': {
           const p = clientToPosition.get(ws);
-          if (p && p === room.currentPlayer && !room.seats[p].isBot) {
+          if (p && p === room.currentPlayer && room.seats[p].ws === ws) {
             room.makeBid(p, data.payload.bidType, data.payload.contract);
             broadcastRoom(room.roomId);
           }
@@ -813,7 +816,7 @@ wss.on('connection', ws => {
 
         case 'SUBMIT_DECLARATIONS': {
           const p = clientToPosition.get(ws);
-          if (p && !room.seats[p].isBot) {
+          if (p && room.seats[p].ws === ws) {
             room.addDeclarations(p, data.payload.declarations);
             broadcastRoom(room.roomId);
           }
@@ -822,7 +825,8 @@ wss.on('connection', ws => {
 
         case 'PLAY_CARD': {
           const p = clientToPosition.get(ws);
-          if (p && p === room.currentPlayer && !room.seats[p].isBot) {
+          // SAMO AKO SOKETUT E TOCHNO NA IGRACHA, CHIITO RED E V MOMENTA!
+          if (p && p === room.currentPlayer && room.seats[p].ws === ws) {
             room.playCard(p, data.payload.card);
             broadcastRoom(room.roomId);
           }
@@ -843,7 +847,6 @@ wss.on('connection', ws => {
         room.seats[pos] = { name: 'Свободно', isBot: true };
         room.cancelBotAction();
 
-        // KOGATO V STAQTA NE OSTANAT HORA -> NULIRAME Q NAPULNO DO 0:0 ZA SLEDVASHTITE!
         if (room.getHumanCount() === 0) {
           room.resetRoomToFreshGame();
         }

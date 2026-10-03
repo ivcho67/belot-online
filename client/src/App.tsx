@@ -111,7 +111,6 @@ export function App() {
           setMyPosition(payload.myPosition);
           setHasJoined(true);
         } else {
-          // Ako staqta se e nulirala do LOBBY i nqmame sedalka
           if (payload.phase === 'LOBBY') {
             setHasJoined(false);
             setMyPosition(null);
@@ -196,26 +195,29 @@ export function App() {
     }
   }, [gameState?.phase, gameState?.currentPlayer, gameState?.auction, myPosition]);
 
-  // 2. Avtomatichno puskane na poslednata (8-ma) karta
+  // 2. AVTOMATICHNO PUSKANE SAMO NA 8-MATA (POSLEDNA) KARTA
   useEffect(() => {
     if (!myPosition || !gameState || gameState.phase !== 'PLAYING') return;
     if (gameState.currentPlayer !== myPosition || gameState.isResolvingTrick) return;
 
-    const hand: Card[] = gameState.myHand || [];
-    if (hand.length === 1) {
-      const timer = setTimeout(() => {
-        playCard(hand[0]);
-      }, 350);
-      return () => clearTimeout(timer);
+    // Striktno: SAMO pri 8-mata ruka i tochno 1 ostavashta karta!
+    if (gameState.currentTrickNumber === 8) {
+      const hand: Card[] = gameState.myHand || [];
+      if (hand.length === 1) {
+        const timer = setTimeout(() => {
+          playCard(hand[0]);
+        }, 400);
+        return () => clearTimeout(timer);
+      }
     }
-  }, [gameState?.phase, gameState?.currentPlayer, gameState?.myHand, gameState?.isResolvingTrick, myPosition]);
+  }, [gameState?.phase, gameState?.currentTrickNumber, gameState?.currentPlayer, gameState?.myHand, gameState?.isResolvingTrick, myPosition]);
 
   const switchRoom = (targetRoom: string) => {
     const r = (targetRoom || 'PUBLIC').toUpperCase().trim();
     setCurrentRoomId(r);
     setMyPosition(null);
     setHasJoined(false);
-    setGameState(null); // Pylno nulirane na ekrana pri smqna na lobi
+    setGameState(null);
 
     socketRef.current?.send(
       JSON.stringify({
@@ -502,7 +504,7 @@ export function App() {
   return (
     <div className="flex flex-col h-screen w-screen bg-[#132f42] select-none overflow-hidden font-sans relative">
       
-      {/* 1. LOBBY TABLO: Vlizane, izbirane na myasto & chakane */}
+      {/* LOBBY MODAL: Vlizane & Chakane */}
       {(!hasJoined || gameState?.phase === 'LOBBY') && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
           <div className="w-full max-w-md bg-[#102534] border-2 border-amber-500 rounded-3xl p-5 shadow-2xl flex flex-col gap-4 text-white">
@@ -547,7 +549,7 @@ export function App() {
               </div>
             )}
 
-            {/* Izbor na sedalki */}
+            {/* Sedalki */}
             <div className="flex flex-col gap-2">
               <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
                 {hasJoined ? `Ти седиш на ${myPosition}. Изчаква се запълване:` : 'Избери свободно място:'}
@@ -608,7 +610,7 @@ export function App() {
               </div>
             </div>
 
-            {/* TABLO ZA CHAKANE & BUTON ZA BOTOWE */}
+            {/* Chakane & Buton za botove */}
             {hasJoined && (
               <div className="flex flex-col items-center gap-3 pt-2 border-t border-slate-700">
                 <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
