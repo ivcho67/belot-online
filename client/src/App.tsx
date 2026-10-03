@@ -110,6 +110,12 @@ export function App() {
         if (payload.myPosition) {
           setMyPosition(payload.myPosition);
           setHasJoined(true);
+        } else {
+          // Ako staqta se e nulirala do LOBBY i nqmame sedalka
+          if (payload.phase === 'LOBBY') {
+            setHasJoined(false);
+            setMyPosition(null);
+          }
         }
 
         if (payload.phase === 'CUTTING') {
@@ -173,7 +179,7 @@ export function App() {
     );
   };
 
-  // 1. АВТОМАТИЧЕН ПАС: При ВСИЧКО КОЗ, обявено от съотборника
+  // 1. Avtomatichen Pas pri Vsichko koz ot partnyor
   useEffect(() => {
     if (!myPosition || !gameState || gameState.phase !== 'BIDDING') return;
     if (gameState.currentPlayer !== myPosition) return;
@@ -182,7 +188,6 @@ export function App() {
     const declarer = gameState.auction?.declarer;
     const myPartner = PARTNERS[myPosition];
 
-    // Ако съотборникът е обявил Всичко коз, автоматично пасуваме след 400мс
     if (currentContract === 'ALL_TRUMP' && declarer === myPartner) {
       const timer = setTimeout(() => {
         sendBid('PASS');
@@ -191,7 +196,7 @@ export function App() {
     }
   }, [gameState?.phase, gameState?.currentPlayer, gameState?.auction, myPosition]);
 
-  // 2. АВТОМАТИЧНО ПУСКАНЕ: Когато е останала точно 1 карта и си на ход
+  // 2. Avtomatichno puskane na poslednata (8-ma) karta
   useEffect(() => {
     if (!myPosition || !gameState || gameState.phase !== 'PLAYING') return;
     if (gameState.currentPlayer !== myPosition || gameState.isResolvingTrick) return;
@@ -210,12 +215,21 @@ export function App() {
     setCurrentRoomId(r);
     setMyPosition(null);
     setHasJoined(false);
-    setGameState(null);
+    setGameState(null); // Pylno nulirane na ekrana pri smqna na lobi
 
     socketRef.current?.send(
       JSON.stringify({
         type: 'JOIN_ROOM',
         payload: { roomId: r }
+      })
+    );
+  };
+
+  const startWithBots = () => {
+    socketRef.current?.send(
+      JSON.stringify({
+        type: 'START_WITH_BOTS',
+        payload: {}
       })
     );
   };
@@ -443,8 +457,6 @@ export function App() {
 
   const isMyTurnToCut = Boolean(myPosition && gameState?.phase === 'CUTTING' && gameState?.cutter === myPosition);
   
-  // Проверка дали на наддаването трябва да се показва панелът:
-  // Ако съотборникът е обявил Всичко коз, панелът не се показва, защото веднага се подава автоматичен пас
   const isPartnerAllTrump = Boolean(
     myPosition &&
     gameState?.auction?.currentContract === 'ALL_TRUMP' &&
@@ -485,18 +497,20 @@ export function App() {
 
   const cardSpacing = isMobile ? 32 : 52;
   const activeMyName = myPosition ? seats[myPosition]?.name : playerName;
+  const humanCount = gameState?.humanCount || 0;
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#132f42] select-none overflow-hidden font-sans relative">
       
-      {/* ЛОБИ ПРОЗОРЕЦ */}
-      {!hasJoined && (
+      {/* 1. LOBBY TABLO: Vlizane, izbirane na myasto & chakane */}
+      {(!hasJoined || gameState?.phase === 'LOBBY') && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
           <div className="w-full max-w-md bg-[#102534] border-2 border-amber-500 rounded-3xl p-5 shadow-2xl flex flex-col gap-4 text-white">
             <h1 className="text-xl sm:text-2xl font-black text-center tracking-wider text-amber-400 uppercase">
-              Belot.bg Multiplayer
+              Belot.bg Стая
             </h1>
 
+            {/* Smenqne na staq */}
             <div className="flex flex-col gap-1.5 p-3 bg-[#0a1822] rounded-2xl border border-slate-700">
               <span className="text-xs font-bold text-slate-300">Стая / Код:</span>
               <div className="flex gap-2">
@@ -519,20 +533,24 @@ export function App() {
               </span>
             </div>
 
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-bold text-slate-300">Твоето име:</label>
-              <input
-                type="text"
-                value={playerName}
-                onChange={e => setPlayerName(e.target.value)}
-                placeholder="Въведи име (напр. Ивайло)"
-                className="px-3.5 py-2 bg-[#0a1822] border border-slate-700 rounded-xl text-white font-bold outline-none focus:border-amber-400 text-sm"
-              />
-            </div>
+            {/* Ime */}
+            {!hasJoined && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-slate-300">Твоето име:</label>
+                <input
+                  type="text"
+                  value={playerName}
+                  onChange={e => setPlayerName(e.target.value)}
+                  placeholder="Въведи име (напр. Ивайло)"
+                  className="px-3.5 py-2 bg-[#0a1822] border border-slate-700 rounded-xl text-white font-bold outline-none focus:border-amber-400 text-sm"
+                />
+              </div>
+            )}
 
+            {/* Izbor na sedalki */}
             <div className="flex flex-col gap-2">
               <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                Избери свободно място (обновява се веднага):
+                {hasJoined ? `Ти седиш на ${myPosition}. Изчаква се запълване:` : 'Избери свободно място:'}
               </span>
 
               <div className="grid grid-cols-2 gap-2">
@@ -543,7 +561,7 @@ export function App() {
                     onClick={() => joinTable('SOUTH')}
                     className={`py-2 text-white rounded-lg font-bold text-xs transition-all truncate px-1 ${
                       seats.SOUTH.isTaken
-                        ? 'bg-slate-700 opacity-50 cursor-not-allowed'
+                        ? 'bg-slate-700 opacity-60 cursor-not-allowed'
                         : 'bg-emerald-700 hover:bg-emerald-600 cursor-pointer active:scale-95'
                     }`}
                   >
@@ -554,7 +572,7 @@ export function App() {
                     onClick={() => joinTable('NORTH')}
                     className={`py-2 text-white rounded-lg font-bold text-xs transition-all truncate px-1 ${
                       seats.NORTH.isTaken
-                        ? 'bg-slate-700 opacity-50 cursor-not-allowed'
+                        ? 'bg-slate-700 opacity-60 cursor-not-allowed'
                         : 'bg-emerald-700 hover:bg-emerald-600 cursor-pointer active:scale-95'
                     }`}
                   >
@@ -569,7 +587,7 @@ export function App() {
                     onClick={() => joinTable('EAST')}
                     className={`py-2 text-white rounded-lg font-bold text-xs transition-all truncate px-1 ${
                       seats.EAST.isTaken
-                        ? 'bg-slate-700 opacity-50 cursor-not-allowed'
+                        ? 'bg-slate-700 opacity-60 cursor-not-allowed'
                         : 'bg-rose-700 hover:bg-rose-600 cursor-pointer active:scale-95'
                     }`}
                   >
@@ -580,7 +598,7 @@ export function App() {
                     onClick={() => joinTable('WEST')}
                     className={`py-2 text-white rounded-lg font-bold text-xs transition-all truncate px-1 ${
                       seats.WEST.isTaken
-                        ? 'bg-slate-700 opacity-50 cursor-not-allowed'
+                        ? 'bg-slate-700 opacity-60 cursor-not-allowed'
                         : 'bg-rose-700 hover:bg-rose-600 cursor-pointer active:scale-95'
                     }`}
                   >
@@ -589,11 +607,31 @@ export function App() {
                 </div>
               </div>
             </div>
+
+            {/* TABLO ZA CHAKANE & BUTON ZA BOTOWE */}
+            {hasJoined && (
+              <div className="flex flex-col items-center gap-3 pt-2 border-t border-slate-700">
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                  <span>В стаята: {humanCount} / 4 играчи</span>
+                </div>
+                <span className="text-[11px] text-slate-400 text-center">
+                  Играта започва автоматично с 4-ма души, или натиснете долу:
+                </span>
+                <button
+                  onClick={startWithBots}
+                  className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm rounded-xl shadow-lg cursor-pointer active:scale-95 transition-all uppercase tracking-wider"
+                >
+                  ▶ Продължи с ботове
+                </button>
+              </div>
+            )}
+
           </div>
         </div>
       )}
 
-      {/* Резултати, обявен договор и бутон за нулиране */}
+      {/* Rezultati, Vdignat dogovor & Reset buton gore vlyavo */}
       <div className="absolute top-2 left-2 sm:top-4 sm:left-6 z-30 flex items-center gap-2 scale-90 sm:scale-100 origin-top-left">
         <div className="bg-[#0f2434]/95 border border-[#1f4e70] rounded-xl px-3 py-1.5 shadow-xl flex items-center gap-4">
           <div className="flex flex-col items-center">
@@ -631,7 +669,7 @@ export function App() {
           </div>
           <button
             onClick={resetCurrentRoom}
-            title="Рестартирай точките и започни ново цепене"
+            title="Рестартирай точките до 0:0 и отвори лобито"
             className="px-2 py-1 bg-rose-800/80 hover:bg-rose-700 text-white font-bold text-[10px] rounded-lg border border-rose-500 cursor-pointer active:scale-95 transition-all shadow"
           >
             ↺ 0:0
@@ -639,11 +677,11 @@ export function App() {
         </div>
       </div>
 
-      {/* Маса */}
+      {/* Masata */}
       <main className="flex-1 relative flex items-center justify-center p-1 sm:p-4">
         <div className="relative w-full max-w-[1040px] h-[92vh] max-h-[700px] bg-[#23587c] rounded-[48px] sm:rounded-[180px] border-[8px] sm:border-[18px] border-[#163a52] shadow-2xl flex flex-col justify-between p-2 sm:p-6 ring-2 sm:ring-4 ring-[#0d2230]/40">
 
-          {/* Север */}
+          {/* Sever */}
           <div className="flex flex-col items-center relative mt-1">
             {speechBubbles['NORTH'] && (
               <div className="absolute -top-8 px-3 py-1 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
@@ -665,10 +703,10 @@ export function App() {
             )}
           </div>
 
-          {/* Среден ред: Запад, Център, Изток */}
+          {/* Sredna liniya */}
           <div className="flex justify-between items-center w-full px-1 sm:px-4">
             
-            {/* Запад */}
+            {/* Zapad */}
             <div className="flex flex-col items-center relative w-16 sm:w-24">
               {speechBubbles['WEST'] && (
                 <div className="absolute -top-8 px-2 py-0.5 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
@@ -690,7 +728,7 @@ export function App() {
               )}
             </div>
 
-            {/* Център */}
+            {/* Centar */}
             <div className="relative flex-1 h-[220px] sm:h-[300px] flex items-center justify-center">
 
               {gameState?.phase === 'CUTTING' && (
@@ -727,14 +765,14 @@ export function App() {
                 </div>
               )}
 
-              {/* Дясно тесте */}
+              {/* Dqsno teste */}
               {gameState?.phase !== 'CUTTING' && (
                 <div className="absolute right-0 sm:right-2 top-1/2 -translate-y-1/2 w-10 h-16 sm:w-16 sm:h-24 bg-[#102d42] rounded-xl border border-blue-400/50 shadow flex items-center justify-center pointer-events-none opacity-80 z-10">
                   <span className="text-sm sm:text-2xl text-blue-300/40 font-bold">♠</span>
                 </div>
               )}
 
-              {/* Взятка в центъра */}
+              {/* Vzyatka v centara */}
               {gameState?.phase !== 'CUTTING' && (
                 <div className="w-full h-full relative flex items-center justify-center pointer-events-none">
                   {gameState?.currentTrickCards?.map((tc: any, idx: number) => {
@@ -786,7 +824,7 @@ export function App() {
                 </div>
               )}
 
-              {/* Панел за наддаване */}
+              {/* Naddavane */}
               {isMyTurnToBid && (
                 <div className="absolute z-40 bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-300 p-2 sm:p-3.5 flex flex-col items-center gap-2 animate-in zoom-in-90 max-w-[280px] sm:max-w-[320px]">
                   <div className="grid grid-cols-2 gap-1.5 sm:gap-2 w-full">
@@ -817,7 +855,7 @@ export function App() {
 
             </div>
 
-            {/* Изток */}
+            {/* Iztok */}
             <div className="flex flex-col items-center relative w-16 sm:w-24">
               {speechBubbles['EAST'] && (
                 <div className="absolute -top-8 px-2 py-0.5 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
@@ -841,7 +879,7 @@ export function App() {
 
           </div>
 
-          {/* Твоята ръка долу */}
+          {/* Tvoyata ruka dolu */}
           <div className="flex flex-col items-center relative mb-1">
             {myPosition && speechBubbles[myPosition] && (
               <div className="absolute -top-8 px-3 py-1 bg-white text-slate-900 font-black text-xs rounded-xl shadow-xl border border-amber-400 z-30">
@@ -849,8 +887,8 @@ export function App() {
               </div>
             )}
 
-            {/* Сортиране */}
-            {hasJoined && gameState?.phase !== 'CUTTING' && gameState?.myHand && gameState.myHand.length > 0 && (
+            {/* Sortirane */}
+            {hasJoined && gameState?.phase !== 'CUTTING' && gameState?.phase !== 'LOBBY' && gameState?.myHand && gameState.myHand.length > 0 && (
               <div className="mb-1 z-20">
                 <button
                   onClick={() => setSortDescending(!sortDescending)}
@@ -861,8 +899,8 @@ export function App() {
               </div>
             )}
 
-            {/* Картите в ръката */}
-            {hasJoined && gameState?.phase !== 'CUTTING' && (
+            {/* Kartite na tvoeto mqsto */}
+            {hasJoined && gameState?.phase !== 'CUTTING' && gameState?.phase !== 'LOBBY' && (
               <div className="flex justify-center items-end h-28 sm:h-40 mb-1 sm:mb-2 relative w-full overflow-visible">
                 {sortedMyHand.map((c: Card, idx: number) => {
                   const total = sortedMyHand.length;
@@ -913,7 +951,7 @@ export function App() {
 
         </div>
 
-        {/* Модал за декларации */}
+        {/* Modal deklaracii */}
         {showDeclarationModal && availableDeclarations.length > 0 && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
             <div className="w-full max-w-sm bg-[#12283a] border-2 border-amber-500/80 rounded-2xl shadow-2xl p-4 flex flex-col gap-3 text-white">
@@ -962,7 +1000,7 @@ export function App() {
           </div>
         )}
 
-        {/* Табло край на рунда */}
+        {/* Tablo krai na runda */}
         {gameState?.phase === 'ROUND_OVER' && summary && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-3">
             <div className="w-full max-w-sm sm:max-w-md bg-[#0c1824] border-2 border-amber-500/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100 scale-95 sm:scale-100">

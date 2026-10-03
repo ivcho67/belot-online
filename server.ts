@@ -110,6 +110,7 @@ class BelotRoom {
 
   constructor(roomId: string) {
     this.roomId = roomId;
+    this.resetRoomToFreshGame();
   }
 
   public cancelBotAction() {
@@ -117,6 +118,40 @@ class BelotRoom {
       clearTimeout(this.botActionTimer);
       this.botActionTimer = null;
     }
+  }
+
+  public resetRoomToFreshGame() {
+    this.cancelBotAction();
+    this.scores = { NORTH_SOUTH: 0, EAST_WEST: 0 };
+    this.hangingPoints = 0;
+    this.dealer = 'WEST';
+    this.phase = 'LOBBY';
+    this.seats = {
+      SOUTH: { name: 'Свободно', isBot: true },
+      NORTH: { name: 'Свободно', isBot: true },
+      EAST: { name: 'Свободно', isBot: true },
+      WEST: { name: 'Свободно', isBot: true },
+    };
+    this.hands = { NORTH: [], EAST: [], SOUTH: [], WEST: [] };
+    this.currentTrickCards = [];
+    this.currentTrickNumber = 1;
+    this.roundSummary = null;
+    this.lastAction = undefined;
+  }
+
+  public getHumanCount(): number {
+    return Object.values(this.seats).filter(s => !s.isBot).length;
+  }
+
+  public startGameWithCurrentOrBots() {
+    // Zapulvame praznite sedalki s botove i minavame kum cepene
+    (['SOUTH', 'NORTH', 'EAST', 'WEST'] as PlayerPosition[]).forEach(pos => {
+      if (!this.seats[pos] || this.seats[pos].isBot) {
+        this.seats[pos] = { name: `Bot ${pos}`, isBot: true };
+      }
+    });
+
+    this.startNewRound();
   }
 
   public startNewRound() {
@@ -559,6 +594,7 @@ class BelotRoom {
       roomId: this.roomId,
       phase: this.phase,
       seats: safeSeats,
+      humanCount: this.getHumanCount(),
       dealer: this.dealer,
       cutter: this.cutter,
       currentPlayer: this.currentPlayer,
@@ -701,8 +737,29 @@ wss.on('connection', ws => {
           clientToRoom.set(ws, newRoomId);
           clientToPosition.delete(ws);
           const targetRoom = getOrCreateRoom(newRoomId);
+
+          // AKO NQMA HORA V NOVATA STAQ -> ZADULZHITELNO RESET DO CHISTO 0:0
+          if (targetRoom.getHumanCount() === 0) {
+            targetRoom.resetRoomToFreshGame();
+          }
+
           broadcastRoom(currentRoomId);
           broadcastRoom(newRoomId);
+          break;
+        }
+
+        case 'START_WITH_BOTS': {
+          // Igrachut natisna butona "Produlzhi s botove" v lobito
+          if (room.phase === 'LOBBY') {
+            room.startGameWithCurrentOrBots();
+            broadcastRoom(room.roomId);
+          }
+          break;
+        }
+
+        case 'RESET_ROOM': {
+          room.resetRoomToFreshGame();
+          broadcastRoom(room.roomId);
           break;
         }
 
@@ -727,7 +784,8 @@ wss.on('connection', ws => {
           clientToPosition.set(ws, position);
           room.cancelBotAction();
 
-          if (room.phase === 'LOBBY') {
+          // AKO SA SEDNALI TOCHNO 4-MA DUSHI -> STARTIRAME CEPENE AVTOMATICHNO!
+          if (room.phase === 'LOBBY' && room.getHumanCount() === 4) {
             room.startNewRound();
           }
 
@@ -784,6 +842,12 @@ wss.on('connection', ws => {
       if (room && room.seats[pos].ws === ws) {
         room.seats[pos] = { name: 'Свободно', isBot: true };
         room.cancelBotAction();
+
+        // KOGATO V STAQTA NE OSTANAT HORA -> NULIRAME Q NAPULNO DO 0:0 ZA SLEDVASHTITE!
+        if (room.getHumanCount() === 0) {
+          room.resetRoomToFreshGame();
+        }
+
         broadcastRoom(roomId);
       }
     }
@@ -792,4 +856,4 @@ wss.on('connection', ws => {
   });
 });
 
-console.log(`[Belot Dedicated Multi-Room Server] Port ${PORT}`);
+console.log(`[Belot Fresh-Reset Multi-Room Server] Port ${PORT}`);
