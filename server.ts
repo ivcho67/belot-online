@@ -3,9 +3,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 export type Suit = 'CLUBS' | 'DIAMONDS' | 'HEARTS' | 'SPADES';
 export type Rank = '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K' | 'A';
 export type ContractType = Suit | 'NO_TRUMP' | 'ALL_TRUMP';
-export type Multiplier = 'NORMAL' | 'CONTRA' | 'RECONTRA';
 export type PlayerPosition = 'NORTH' | 'EAST' | 'SOUTH' | 'WEST';
-export type GamePhase = 'LOBBY' | 'CUTTING' | 'BIDDING' | 'PLAYING' | 'ROUND_OVER';
+export type Team = 'NORTH_SOUTH' | 'EAST_WEST';
 
 export interface Card {
   id: string;
@@ -13,7 +12,12 @@ export interface Card {
   rank: Rank;
 }
 
-export interface DeclarationItem {
+export interface PlayedCard {
+  player: PlayerPosition;
+  card: Card;
+}
+
+export interface DeclarationCandidate {
   id: string;
   type: string;
   points: number;
@@ -22,37 +26,22 @@ export interface DeclarationItem {
   ranks: string[];
 }
 
-export interface RoundSummary {
-  contractTitle: string;
-  declarerName: string;
-  declarerPosition: PlayerPosition;
-  belotPointsNS: number;
-  belotPointsEW: number;
-  declarationsNS: { label: string; points: number }[];
-  declarationsEW: { label: string; points: number }[];
-  handPointsNS: number;
-  handPointsEW: number;
-  totalPointsNS: number;
-  totalPointsEW: number;
-  outcomeText: string;
-  scoreAddedNS: number;
-  scoreAddedEW: number;
-}
-
-interface SeatInfo {
+export interface Seat {
   name: string;
   isBot: boolean;
+  isTaken: boolean;
   ws?: WebSocket;
 }
 
 const SUITS: Suit[] = ['CLUBS', 'DIAMONDS', 'HEARTS', 'SPADES'];
 const RANKS: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
-const NEXT_PLAYER: Record<PlayerPosition, PlayerPosition> = {
-  SOUTH: 'EAST',
-  EAST: 'NORTH',
-  NORTH: 'WEST',
-  WEST: 'SOUTH',
+const TRUMP_POINTS: Record<Rank, number> = {
+  'J': 20, '9': 14, 'A': 11, '10': 10, 'K': 4, 'Q': 3, '8': 0, '7': 0
+};
+
+const NON_TRUMP_POINTS: Record<Rank, number> = {
+  'A': 11, '10': 10, 'K': 4, 'Q': 3, 'J': 2, '9': 0, '8': 0, '7': 0
 };
 
 const TRUMP_POWER: Record<Rank, number> = {
@@ -63,801 +52,614 @@ const NON_TRUMP_POWER: Record<Rank, number> = {
   '7': 0, '8': 1, '9': 2, 'J': 3, 'Q': 4, 'K': 5, '10': 6, 'A': 7
 };
 
-const TRUMP_VALUES: Record<Rank, number> = {
-  '7': 0, '8': 0, 'Q': 3, 'K': 4, '10': 10, 'A': 11, '9': 14, 'J': 20
+const NEXT_POSITION: Record<PlayerPosition, PlayerPosition> = {
+  NORTH: 'EAST',
+  EAST: 'SOUTH',
+  SOUTH: 'WEST',
+  WEST: 'NORTH',
 };
 
-const NON_TRUMP_VALUES: Record<Rank, number> = {
-  '7': 0, '8': 0, '9': 0, 'J': 2, 'Q': 3, 'K': 4, '10': 10, 'A': 11
+const PARTNERS: Record<PlayerPosition, PlayerPosition> = {
+  SOUTH: 'NORTH',
+  NORTH: 'SOUTH',
+  EAST: 'WEST',
+  WEST: 'EAST',
 };
+
+const CONTRACT_TITLES: Record<string, string> = {
+  CLUBS: 'СПАТИЯ ♣',
+  DIAMONDS: 'КАРО ♦',
+  HEARTS: 'КУПА ♥',
+  SPADES: 'ПИКА ♠',
+  NO_TRUMP: 'БЕЗ КОЗ',
+  ALL_TRUMP: 'ВСИЧКО КОЗ',
+};
+
+function createFreshDeck(): Card[] {
+  const deck: Card[] = [];
+  for (const suit of SUITS) {
+    for (const rank of RANKS) {
+      deck.push({ id: `${suit}-${rank}`, suit, rank });
+    }
+  }
+  return deck;
+}
+
+function shuffleDeck(deck: Card[]): Card[] {
+  const arr = [...deck];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
 
 class BelotRoom {
-  public roomId: string;
-  public phase: GamePhase = 'LOBBY';
-  public seats: Record<PlayerPosition, SeatInfo> = {
-    SOUTH: { name: 'Свободно', isBot: true },
-    NORTH: { name: 'Свободно', isBot: true },
-    EAST: { name: 'Свободно', isBot: true },
-    WEST: { name: 'Свободно', isBot: true },
+  roomId: string;
+  phase: 'LOBBY' | 'CUTTING' | 'BIDDING' | 'PLAYING' | 'ROUND_OVER' = 'LOBBY';
+  seats: Record<PlayerPosition, Seat> = {
+    SOUTH: { name: 'Свободно', isBot: true, isTaken: false },
+    NORTH: { name: 'Свободно', isBot: true, isTaken: false },
+    EAST: { name: 'Свободно', isBot: true, isTaken: false },
+    WEST: { name: 'Свободно', isBot: true, isTaken: false },
+  };
+  dealer: PlayerPosition = 'NORTH';
+  cutter: PlayerPosition = 'WEST';
+  currentPlayer: PlayerPosition = 'EAST';
+  
+  deck: Card[] = [];
+  hands: Record<PlayerPosition, Card[]> = {
+    SOUTH: [], NORTH: [], EAST: [], WEST: []
   };
 
-  public dealer: PlayerPosition = 'WEST';
-  public cutter: PlayerPosition = 'SOUTH';
-  public currentPlayer: PlayerPosition = 'SOUTH';
-  public deck: Card[] = [];
-  public hands: Record<PlayerPosition, Card[]> = {
-    NORTH: [], EAST: [], SOUTH: [], WEST: []
-  };
-  public auction = {
-    currentContract: undefined as ContractType | undefined,
-    declarer: undefined as PlayerPosition | undefined,
-    multiplier: 'NORMAL' as Multiplier,
+  auction = {
+    currentContract: null as ContractType | null,
+    declarer: null as PlayerPosition | null,
     consecutivePasses: 0,
-    bidsHistory: [] as any[],
+    isDoubled: false,
+    isRedoubled: false,
   };
-  public currentTrickCards: { player: PlayerPosition; card: Card }[] = [];
-  public currentTrickNumber: number = 1;
-  public tricksWon = { NORTH_SOUTH: 0, EAST_WEST: 0 };
-  public rawCardPoints = { NORTH_SOUTH: 0, EAST_WEST: 0 };
-  public scores = { NORTH_SOUTH: 0, EAST_WEST: 0 };
-  public hangingPoints: number = 0;
-  public isResolvingTrick: boolean = false;
-  public trickWinner?: PlayerPosition;
-  public lastAction?: { player: PlayerPosition; text: string };
-  public submittedDeclarations: { player: PlayerPosition; item: DeclarationItem }[] = [];
-  public roundSummary: RoundSummary | null = null;
-  public botActionTimer: NodeJS.Timeout | null = null;
+
+  currentTrickNumber = 0;
+  currentTrickCards: PlayedCard[] = [];
+  tricksWon: Record<Team, PlayedCard[][]> = {
+    NORTH_SOUTH: [],
+    EAST_WEST: [],
+  };
+
+  declarations: Record<Team, DeclarationCandidate[]> = {
+    NORTH_SOUTH: [],
+    EAST_WEST: [],
+  };
+
+  belotsAnnounced: Record<Team, number> = {
+    NORTH_SOUTH: 0,
+    EAST_WEST: 0,
+  };
+
+  scores: Record<Team, number> = {
+    NORTH_SOUTH: 0,
+    EAST_WEST: 0,
+  };
+
+  pendingHangingPoints: number = 0;
+  roundSummary: any = null;
+  isResolvingTrick: boolean = false;
+  lastAction: { player: PlayerPosition; text: string } | null = null;
+  botTimeoutId: NodeJS.Timeout | null = null;
 
   constructor(roomId: string) {
     this.roomId = roomId;
-    this.resetRoomToFreshGame();
   }
 
-  public cancelBotAction() {
-    if (this.botActionTimer) {
-      clearTimeout(this.botActionTimer);
-      this.botActionTimer = null;
-    }
+  getHumanCount(): number {
+    return Object.values(this.seats).filter(s => s.isTaken && !s.isBot).length;
   }
 
-  public resetRoomToFreshGame() {
-    this.cancelBotAction();
-    this.scores = { NORTH_SOUTH: 0, EAST_WEST: 0 };
-    this.hangingPoints = 0;
-    this.dealer = 'WEST';
-    this.phase = 'LOBBY';
-    this.seats = {
-      SOUTH: { name: 'Свободно', isBot: true },
-      NORTH: { name: 'Свободно', isBot: true },
-      EAST: { name: 'Свободно', isBot: true },
-      WEST: { name: 'Свободно', isBot: true },
-    };
-    this.hands = { NORTH: [], EAST: [], SOUTH: [], WEST: [] };
-    this.currentTrickCards = [];
-    this.currentTrickNumber = 1;
-    this.roundSummary = null;
-    this.lastAction = undefined;
-  }
-
-  public getHumanCount(): number {
-    return Object.values(this.seats).filter(s => !s.isBot && s.ws && s.ws.readyState === WebSocket.OPEN).length;
-  }
-
-  public startGameWithCurrentOrBots() {
-    (['SOUTH', 'NORTH', 'EAST', 'WEST'] as PlayerPosition[]).forEach(pos => {
-      const s = this.seats[pos];
-      if (!s || s.isBot || !s.ws || s.ws.readyState !== WebSocket.OPEN) {
-        this.seats[pos] = { name: `Bot ${pos}`, isBot: true };
-      }
-    });
-
-    this.startNewRound();
-  }
-
-  public startNewRound() {
-    this.cancelBotAction();
-    this.deck = this.buildDeck();
-    this.hands = { NORTH: [], EAST: [], SOUTH: [], WEST: [] };
-    this.auction = {
-      currentContract: undefined,
-      declarer: undefined,
-      multiplier: 'NORMAL',
-      consecutivePasses: 0,
-      bidsHistory: [],
-    };
-    this.currentTrickCards = [];
-    this.currentTrickNumber = 1;
-    this.tricksWon = { NORTH_SOUTH: 0, EAST_WEST: 0 };
-    this.rawCardPoints = { NORTH_SOUTH: 0, EAST_WEST: 0 };
-    this.isResolvingTrick = false;
-    this.trickWinner = undefined;
-    this.lastAction = undefined;
-    this.submittedDeclarations = [];
-    this.roundSummary = null;
-
-    this.phase = 'CUTTING';
-    this.cutter = NEXT_PLAYER[this.dealer];
-    this.currentPlayer = this.cutter;
-  }
-
-  private buildDeck(): Card[] {
-    const cards: Card[] = [];
-    for (const suit of SUITS) {
-      for (const rank of RANKS) {
-        cards.push({ id: `${suit}-${rank}`, suit, rank });
+  broadcast() {
+    for (const pos of ['SOUTH', 'NORTH', 'EAST', 'WEST'] as PlayerPosition[]) {
+      const seat = this.seats[pos];
+      if (seat.ws && seat.ws.readyState === WebSocket.OPEN) {
+        const payload = this.getGameStateForPlayer(pos);
+        seat.ws.send(JSON.stringify({ type: 'GAME_STATE_UPDATE', payload }));
       }
     }
-    for (let i = cards.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [cards[i], cards[j]] = [cards[j], cards[i]];
-    }
-    return cards;
   }
 
-  private dealInitialFive() {
-    const order: PlayerPosition[] = ['EAST', 'NORTH', 'WEST', 'SOUTH'];
-    for (const p of order) this.hands[p].push(...this.deck.splice(0, 3));
-    for (const p of order) this.hands[p].push(...this.deck.splice(0, 2));
-  }
-
-  public dealRemainingThree() {
-    const order: PlayerPosition[] = ['EAST', 'NORTH', 'WEST', 'SOUTH'];
-    for (const p of order) this.hands[p].push(...this.deck.splice(0, 3));
-  }
-
-  public cutDeck(cutIndex: number) {
-    if (this.phase !== 'CUTTING') return;
-    const split = Math.max(3, Math.min(this.deck.length - 3, cutIndex));
-    const top = this.deck.splice(0, split);
-    this.deck.push(...top);
-
-    this.dealInitialFive();
-    this.phase = 'BIDDING';
-    this.currentPlayer = NEXT_PLAYER[this.dealer];
-  }
-
-  public makeBid(player: PlayerPosition, bidType: string, contract?: ContractType) {
-    if (this.phase !== 'BIDDING' || this.currentPlayer !== player) return;
-
-    if (bidType === 'PASS') {
-      this.auction.consecutivePasses++;
-      this.lastAction = { player, text: 'ПАС' };
-
-      if (!this.auction.currentContract && this.auction.consecutivePasses >= 4) {
-        this.dealer = NEXT_PLAYER[this.dealer];
-        this.startNewRound();
-        return;
-      }
-
-      if (this.auction.currentContract && this.auction.consecutivePasses >= 3) {
-        this.dealRemainingThree();
-        this.phase = 'PLAYING';
-        this.currentTrickNumber = 1;
-        this.currentPlayer = NEXT_PLAYER[this.dealer];
-        return;
-      }
-    } else if (bidType === 'CONTRACT' && contract) {
-      this.auction.currentContract = contract;
-      this.auction.declarer = player;
-      this.auction.multiplier = 'NORMAL';
-      this.auction.consecutivePasses = 0;
-      this.lastAction = { player, text: contract };
-    }
-
-    this.currentPlayer = NEXT_PLAYER[this.currentPlayer];
-  }
-
-  public addDeclarations(player: PlayerPosition, items: DeclarationItem[]) {
-    items.forEach(item => {
-      this.submittedDeclarations.push({ player, item });
-      this.lastAction = { player, text: item.label };
-    });
-  }
-
-  public getCurrentTrickWinner(): { winner: PlayerPosition; highestPower: number } {
-    const trick = this.currentTrickCards;
-    if (!trick || trick.length === 0) {
-      return { winner: this.currentPlayer, highestPower: -1 };
-    }
-
-    const contract = this.auction.currentContract!;
-    const leadCard = trick[0].card;
-    const leadSuit = leadCard.suit;
-    let winner = trick[0].player;
-
-    if (contract === 'ALL_TRUMP') {
-      let highestPower = TRUMP_POWER[leadCard.rank];
-      for (let i = 1; i < trick.length; i++) {
-        const tc = trick[i];
-        if (tc.card.suit === leadSuit) {
-          const power = TRUMP_POWER[tc.card.rank];
-          if (power > highestPower) {
-            highestPower = power;
-            winner = tc.player;
-          }
-        }
-      }
-      return { winner, highestPower };
-    }
-
-    if (contract === 'NO_TRUMP') {
-      let highestPower = NON_TRUMP_POWER[leadCard.rank];
-      for (let i = 1; i < trick.length; i++) {
-        const tc = trick[i];
-        if (tc.card.suit === leadSuit) {
-          const power = NON_TRUMP_POWER[tc.card.rank];
-          if (power > highestPower) {
-            highestPower = power;
-            winner = tc.player;
-          }
-        }
-      }
-      return { winner, highestPower };
-    }
-
-    const trumpSuit = contract as Suit;
-    let hasTrump = leadSuit === trumpSuit;
-    let highestTrumpPower = hasTrump ? TRUMP_POWER[leadCard.rank] : -1;
-    let highestLeadPower = hasTrump ? -1 : NON_TRUMP_POWER[leadCard.rank];
-
-    for (let i = 1; i < trick.length; i++) {
-      const tc = trick[i];
-      const isTrump = tc.card.suit === trumpSuit;
-
-      if (isTrump) {
-        const power = TRUMP_POWER[tc.card.rank];
-        if (!hasTrump || power > highestTrumpPower) {
-          hasTrump = true;
-          highestTrumpPower = power;
-          winner = tc.player;
-        }
-      } else if (!hasTrump && tc.card.suit === leadSuit) {
-        const power = NON_TRUMP_POWER[tc.card.rank];
-        if (power > highestLeadPower) {
-          highestLeadPower = power;
-          winner = tc.player;
-        }
-      }
-    }
-
-    return { 
-      winner, 
-      highestPower: hasTrump ? highestTrumpPower : highestLeadPower 
-    };
-  }
-
-  public isCardValidForPlay(player: PlayerPosition, card: Card): boolean {
-    const hand = this.hands[player];
-    const contract = this.auction.currentContract!;
-
-    if (this.currentTrickCards.length === 0) return true;
-
-    const leadSuit = this.currentTrickCards[0].card.suit;
-    const hasLeadSuit = hand.some(c => c.suit === leadSuit);
-    const { winner, highestPower } = this.getCurrentTrickWinner();
-
-    const isPartnerWinning =
-      (player === 'SOUTH' && winner === 'NORTH') ||
-      (player === 'NORTH' && winner === 'SOUTH') ||
-      (player === 'EAST' && winner === 'WEST') ||
-      (player === 'WEST' && winner === 'EAST');
-
-    if (contract === 'NO_TRUMP') {
-      if (hasLeadSuit) return card.suit === leadSuit;
-      return true;
-    }
-
-    if (contract === 'ALL_TRUMP') {
-      if (hasLeadSuit) {
-        if (card.suit !== leadSuit) return false;
-        const higherInLead = hand.filter(c => c.suit === leadSuit && TRUMP_POWER[c.rank] > highestPower);
-        if (higherInLead.length > 0) return TRUMP_POWER[card.rank] > highestPower;
-        return true;
-      }
-      return true;
-    }
-
-    const trumpSuit = contract as Suit;
-    const isLeadTrump = (leadSuit === trumpSuit);
-
-    if (isLeadTrump) {
-      if (hasLeadSuit) {
-        if (card.suit !== trumpSuit) return false;
-        const higherTrumps = hand.filter(c => c.suit === trumpSuit && TRUMP_POWER[c.rank] > highestPower);
-        if (higherTrumps.length > 0) return TRUMP_POWER[card.rank] > highestPower;
-        return true;
-      }
-      return true;
-    }
-
-    if (hasLeadSuit) {
-      return card.suit === leadSuit;
-    }
-
-    if (isPartnerWinning) return true;
-
-    const trumps = hand.filter(c => c.suit === trumpSuit);
-    if (trumps.length > 0) {
-      if (card.suit !== trumpSuit) return false;
-      const alreadyTrumped = this.currentTrickCards.some(tc => tc.card.suit === trumpSuit);
-      if (alreadyTrumped) {
-        const higher = trumps.filter(c => TRUMP_POWER[c.rank] > highestPower);
-        if (higher.length > 0) return TRUMP_POWER[card.rank] > highestPower;
-        return true;
-      }
-      return true;
-    }
-
-    return true;
-  }
-
-  public playCard(player: PlayerPosition, card: Card) {
-    if (this.phase !== 'PLAYING' || this.currentPlayer !== player || this.isResolvingTrick) return;
-    if (!this.isCardValidForPlay(player, card)) return;
-
-    this.cancelBotAction();
-    this.hands[player] = this.hands[player].filter(c => c.id !== card.id);
-    this.currentTrickCards.push({ player, card });
-
-    if (this.currentTrickCards.length === 4) {
-      this.resolveCurrentTrick();
-    } else {
-      this.currentPlayer = NEXT_PLAYER[this.currentPlayer];
-    }
-  }
-
-  private resolveCurrentTrick() {
-    this.isResolvingTrick = true;
-    const contract = this.auction.currentContract!;
-    const { winner } = this.getCurrentTrickWinner();
-
-    let trickSum = 0;
-    for (const tc of this.currentTrickCards) {
-      const c = tc.card;
-      if (contract === 'ALL_TRUMP') {
-        trickSum += TRUMP_VALUES[c.rank];
-      } else if (contract === 'NO_TRUMP') {
-        trickSum += NON_TRUMP_VALUES[c.rank] * 2;
-      } else {
-        const isTrump = (c.suit === contract);
-        trickSum += isTrump ? TRUMP_VALUES[c.rank] : NON_TRUMP_VALUES[c.rank];
-      }
-    }
-
-    if (this.currentTrickNumber === 8) {
-      trickSum += (contract === 'NO_TRUMP' ? 20 : 10);
-    }
-
-    if (winner === 'SOUTH' || winner === 'NORTH') {
-      this.rawCardPoints.NORTH_SOUTH += trickSum;
-      this.tricksWon.NORTH_SOUTH++;
-    } else {
-      this.rawCardPoints.EAST_WEST += trickSum;
-      this.tricksWon.EAST_WEST++;
-    }
-
-    this.trickWinner = winner;
-
-    setTimeout(() => {
-      this.isResolvingTrick = false;
-      this.currentTrickCards = [];
-      this.currentPlayer = winner;
-
-      if (this.currentTrickNumber >= 8) {
-        this.finalizeRound();
-      } else {
-        this.currentTrickNumber++;
-        broadcastRoom(this.roomId);
-      }
-    }, 2200);
-  }
-
-  private finalizeRound() {
-    this.phase = 'ROUND_OVER';
-    const declarer = this.auction.declarer || 'SOUTH';
-    const declarerName = this.seats[declarer]?.name || declarer;
-    const declarerIsNS = (declarer === 'SOUTH' || declarer === 'NORTH');
-    const contract = this.auction.currentContract!;
-
-    let declPointsNS = 0;
-    let declPointsEW = 0;
-    let belotNS = 0;
-    let belotEW = 0;
-
-    const declsNSFormatted: { label: string; points: number }[] = [];
-    const declsEWFormatted: { label: string; points: number }[] = [];
-
-    if (contract !== 'NO_TRUMP') {
-      this.submittedDeclarations.forEach(sub => {
-        const isNS = (sub.player === 'SOUTH' || sub.player === 'NORTH');
-        if (sub.item.type === 'БЕЛОТ') {
-          if (isNS) belotNS += sub.item.points;
-          else belotEW += sub.item.points;
-        } else {
-          if (isNS) {
-            declPointsNS += sub.item.points;
-            declsNSFormatted.push({ label: sub.item.ranks.join(' '), points: sub.item.points });
-          } else {
-            declPointsEW += sub.item.points;
-            declsEWFormatted.push({ label: sub.item.ranks.join(' '), points: sub.item.points });
-          }
-        }
-      });
-    }
-
-    const handNS = this.rawCardPoints.NORTH_SOUTH;
-    const handEW = this.rawCardPoints.EAST_WEST;
-
-    const totalRawNS = handNS + belotNS + declPointsNS;
-    const totalRawEW = handEW + belotEW + declPointsEW;
-
-    const declarerTotal = declarerIsNS ? totalRawNS : totalRawEW;
-    const defenderTotal = declarerIsNS ? totalRawEW : totalRawNS;
-
-    let scoreNS = 0;
-    let scoreEW = 0;
-    let outcomeText = 'ИЗКАРАНА';
-
-    const isCapotNS = (this.tricksWon.NORTH_SOUTH === 8);
-    const isCapotEW = (this.tricksWon.EAST_WEST === 8);
-
-    if (isCapotNS) {
-      scoreNS = Math.round(totalRawNS / 10) + 9 + this.hangingPoints;
-      scoreEW = 0;
-      this.hangingPoints = 0;
-      outcomeText = 'КАПО (ВАЛАТ)!';
-    } else if (isCapotEW) {
-      scoreEW = Math.round(totalRawEW / 10) + 9 + this.hangingPoints;
-      scoreNS = 0;
-      this.hangingPoints = 0;
-      outcomeText = 'КАПО (ВАЛАТ)!';
-    } else if (declarerTotal > defenderTotal) {
-      scoreNS = Math.round(totalRawNS / 10);
-      scoreEW = Math.round(totalRawEW / 10);
-      if (declarerIsNS) scoreNS += this.hangingPoints;
-      else scoreEW += this.hangingPoints;
-      this.hangingPoints = 0;
-      outcomeText = 'ИЗКАРАНА';
-    } else if (declarerTotal < defenderTotal) {
-      const allPoints = Math.round((totalRawNS + totalRawEW) / 10) + this.hangingPoints;
-      this.hangingPoints = 0;
-      if (declarerIsNS) {
-        scoreNS = 0;
-        scoreEW = allPoints;
-      } else {
-        scoreEW = 0;
-        scoreNS = allPoints;
-      }
-      outcomeText = 'ВЪТРЕ';
-    } else {
-      const defScore = Math.round(defenderTotal / 10);
-      const decScore = Math.round(declarerTotal / 10);
-      this.hangingPoints += decScore;
-
-      if (declarerIsNS) {
-        scoreNS = 0;
-        scoreEW = defScore;
-      } else {
-        scoreEW = 0;
-        scoreNS = defScore;
-      }
-      outcomeText = 'ВИСЯЩИ ТОЧКИ';
-    }
-
-    this.scores.NORTH_SOUTH += scoreNS;
-    this.scores.EAST_WEST += scoreEW;
-
-    const CONTRACT_TITLES: Record<string, string> = {
-      CLUBS: 'СПАТИЯ',
-      DIAMONDS: 'КАРО',
-      HEARTS: 'КУПА',
-      SPADES: 'ПИКА',
-      NO_TRUMP: 'БЕЗ КОЗ',
-      ALL_TRUMP: 'ВСИЧКО КОЗ',
-    };
-
-    this.roundSummary = {
-      contractTitle: `${CONTRACT_TITLES[contract || 'ALL_TRUMP']}`,
-      declarerName,
-      declarerPosition: declarer,
-      belotPointsNS: belotNS,
-      belotPointsEW: belotEW,
-      declarationsNS: declsNSFormatted,
-      declarationsEW: declsEWFormatted,
-      handPointsNS: handNS,
-      handPointsEW: handEW,
-      totalPointsNS: totalRawNS,
-      totalPointsEW: totalRawEW,
-      outcomeText,
-      scoreAddedNS: scoreNS,
-      scoreAddedEW: scoreEW,
-    };
-
-    broadcastRoom(this.roomId);
-
-    setTimeout(() => {
-      this.dealer = NEXT_PLAYER[this.dealer];
-      this.startNewRound();
-      broadcastRoom(this.roomId);
-    }, 8500);
-  }
-
-  public getPayloadFor(targetPosition?: PlayerPosition) {
-    const safeSeats: Record<PlayerPosition, { name: string; isBot: boolean; isTaken: boolean }> = {
-      SOUTH: { name: this.seats.SOUTH.name, isBot: this.seats.SOUTH.isBot, isTaken: !this.seats.SOUTH.isBot },
-      NORTH: { name: this.seats.NORTH.name, isBot: this.seats.NORTH.isBot, isTaken: !this.seats.NORTH.isBot },
-      EAST: { name: this.seats.EAST.name, isBot: this.seats.EAST.isBot, isTaken: !this.seats.EAST.isBot },
-      WEST: { name: this.seats.WEST.name, isBot: this.seats.WEST.isBot, isTaken: !this.seats.WEST.isBot },
+  getGameStateForPlayer(playerPos: PlayerPosition) {
+    const handsOverview: Record<PlayerPosition, { cardCount: number }> = {
+      SOUTH: { cardCount: this.hands.SOUTH.length },
+      NORTH: { cardCount: this.hands.NORTH.length },
+      EAST: { cardCount: this.hands.EAST.length },
+      WEST: { cardCount: this.hands.WEST.length },
     };
 
     return {
       roomId: this.roomId,
       phase: this.phase,
-      seats: safeSeats,
+      myPosition: playerPos,
+      seats: this.seats,
       humanCount: this.getHumanCount(),
       dealer: this.dealer,
       cutter: this.cutter,
       currentPlayer: this.currentPlayer,
+      myHand: this.hands[playerPos],
+      handsOverview,
       auction: this.auction,
       declarer: this.auction.declarer,
-      declarerName: this.auction.declarer ? this.seats[this.auction.declarer]?.name : undefined,
-      myHand: targetPosition ? (this.hands[targetPosition] || []) : [],
-      handsOverview: {
-        NORTH: { cardCount: this.hands.NORTH.length },
-        EAST: { cardCount: this.hands.EAST.length },
-        SOUTH: { cardCount: this.hands.SOUTH.length },
-        WEST: { cardCount: this.hands.WEST.length },
-      },
-      currentTrickCards: this.currentTrickCards,
+      declarerName: this.auction.declarer ? this.seats[this.auction.declarer].name : null,
       currentTrickNumber: this.currentTrickNumber,
+      currentTrickCards: this.currentTrickCards,
       isResolvingTrick: this.isResolvingTrick,
-      trickWinner: this.trickWinner,
       scores: this.scores,
-      hangingPoints: this.hangingPoints,
-      lastAction: this.lastAction,
       roundSummary: this.roundSummary,
+      lastAction: this.lastAction,
     };
   }
+
+  startNewGame() {
+    this.phase = 'CUTTING';
+    this.scores = { NORTH_SOUTH: 0, EAST_WEST: 0 };
+    this.pendingHangingPoints = 0;
+    this.startRound();
+  }
+
+  startRound() {
+    this.deck = shuffleDeck(createFreshDeck());
+    this.auction = {
+      currentContract: null,
+      declarer: null,
+      consecutivePasses: 0,
+      isDoubled: false,
+      isRedoubled: false,
+    };
+    this.currentTrickNumber = 0;
+    this.currentTrickCards = [];
+    this.tricksWon = { NORTH_SOUTH: [], EAST_WEST: [] };
+    this.declarations = { NORTH_SOUTH: [], EAST_WEST: [] };
+    this.belotsAnnounced = { NORTH_SOUTH: 0, EAST_WEST: 0 };
+    this.roundSummary = null;
+    this.isResolvingTrick = false;
+
+    this.cutter = NEXT_POSITION[this.dealer];
+    this.currentPlayer = this.cutter;
+    this.phase = 'CUTTING';
+    this.broadcast();
+
+    this.scheduleBotAction();
+  }
+
+  cutDeck(cutIndex: number) {
+    if (this.phase !== 'CUTTING') return;
+    const cutPoint = Math.max(1, Math.min(31, cutIndex));
+    this.deck = [...this.deck.slice(cutPoint), ...this.deck.slice(0, cutPoint)];
+
+    this.dealInitialCards();
+    this.phase = 'BIDDING';
+    this.currentPlayer = NEXT_POSITION[this.dealer];
+    this.broadcast();
+
+    this.scheduleBotAction();
+  }
+
+  dealInitialCards() {
+    for (const pos of ['SOUTH', 'NORTH', 'EAST', 'WEST'] as PlayerPosition[]) {
+      this.hands[pos] = [];
+    }
+
+    // 3 karti na vseki
+    for (const pos of ['SOUTH', 'NORTH', 'EAST', 'WEST'] as PlayerPosition[]) {
+      this.hands[pos].push(...this.deck.splice(0, 3));
+    }
+    // 2 karti na vseki (obshto 5)
+    for (const pos of ['SOUTH', 'NORTH', 'EAST', 'WEST'] as PlayerPosition[]) {
+      this.hands[pos].push(...this.deck.splice(0, 2));
+    }
+  }
+
+  dealRemainingCards() {
+    // 3 karti na vseki (dopalvashto razdavane do 8 karti)
+    for (const pos of ['SOUTH', 'NORTH', 'EAST', 'WEST'] as PlayerPosition[]) {
+      this.hands[pos].push(...this.deck.splice(0, 3));
+    }
+  }
+
+  makeBid(player: PlayerPosition, bidType: string, contract?: ContractType) {
+    if (this.phase !== 'BIDDING' || this.currentPlayer !== player) return;
+
+    if (bidType === 'PASS') {
+      this.auction.consecutivePasses++;
+      this.lastAction = { player, text: 'ПАС' };
+    } else if (bidType === 'CONTRA') {
+      if (this.auction.currentContract && !this.auction.isDoubled) {
+        this.auction.isDoubled = true;
+        this.auction.consecutivePasses = 0;
+        this.lastAction = { player, text: 'КОНТРА' };
+      }
+    } else if (bidType === 'RECONTRA') {
+      if (this.auction.isDoubled && !this.auction.isRedoubled) {
+        this.auction.isRedoubled = true;
+        this.auction.consecutivePasses = 0;
+        this.lastAction = { player, text: 'РЕКОНТРА' };
+      }
+    } else if (bidType === 'CONTRACT' && contract) {
+      this.auction.currentContract = contract;
+      this.auction.declarer = player;
+      this.auction.consecutivePasses = 0;
+      this.lastAction = { player, text: CONTRACT_TITLES[contract] || contract };
+    }
+
+    // Proverka za krai na turga
+    if (this.auction.consecutivePasses >= 3 && this.auction.currentContract) {
+      this.dealRemainingCards();
+      this.phase = 'PLAYING';
+      this.currentTrickNumber = 1;
+      this.currentPlayer = NEXT_POSITION[this.dealer];
+      this.broadcast();
+      this.scheduleBotAction();
+      return;
+    }
+
+    // 4 последователни паса в началото -> нереализирано раздаване
+    if (this.auction.consecutivePasses >= 4 && !this.auction.currentContract) {
+      this.dealer = NEXT_POSITION[this.dealer];
+      this.startRound();
+      return;
+    }
+
+    this.currentPlayer = NEXT_POSITION[this.currentPlayer];
+    this.broadcast();
+    this.scheduleBotAction();
+  }
+
+  playCard(player: PlayerPosition, card: Card) {
+    if (this.phase !== 'PLAYING' || this.currentPlayer !== player || this.isResolvingTrick) return;
+
+    const hand = this.hands[player];
+    const cardIndex = hand.findIndex(c => c.suit === card.suit && c.rank === card.rank);
+    if (cardIndex === -1) return;
+
+    const [played] = hand.splice(cardIndex, 1);
+    this.currentTrickCards.push({ player, card: played });
+
+    if (this.currentTrickCards.length < 4) {
+      this.currentPlayer = NEXT_POSITION[player];
+      this.broadcast();
+      this.scheduleBotAction();
+    } else {
+      this.resolveTrick();
+    }
+  }
+
+  resolveTrick() {
+    this.isResolvingTrick = true;
+    const contract = this.auction.currentContract!;
+    const winner = this.evaluateTrickWinner(this.currentTrickCards, contract);
+    const winningTeam: Team = winner === 'SOUTH' || winner === 'NORTH' ? 'NORTH_SOUTH' : 'EAST_WEST';
+
+    this.tricksWon[winningTeam].push([...this.currentTrickCards]);
+
+    this.broadcast();
+
+    setTimeout(() => {
+      this.isResolvingTrick = false;
+      this.currentTrickCards = [];
+
+      if (this.currentTrickNumber >= 8) {
+        this.resolveRound(winner);
+      } else {
+        this.currentTrickNumber++;
+        this.currentPlayer = winner;
+        this.broadcast();
+        this.scheduleBotAction();
+      }
+    }, 1500);
+  }
+
+  evaluateTrickWinner(trick: PlayedCard[], contract: ContractType): PlayerPosition {
+    const leadSuit = trick[0].card.suit;
+    let winningCard = trick[0];
+    let highestPower = -1;
+    let highestIsTrump = false;
+
+    for (const tc of trick) {
+      const isTrump = contract === 'ALL_TRUMP' || (contract !== 'NO_TRUMP' && tc.card.suit === contract);
+      const power = isTrump ? TRUMP_POWER[tc.card.rank] : NON_TRUMP_POWER[tc.card.rank];
+
+      if (isTrump) {
+        if (!highestIsTrump || power > highestPower) {
+          highestIsTrump = true;
+          highestPower = power;
+          winningCard = tc;
+        }
+      } else if (!highestIsTrump && tc.card.suit === leadSuit) {
+        if (power > highestPower) {
+          highestPower = power;
+          winningCard = tc;
+        }
+      }
+    }
+    return winningCard.player;
+  }
+
+  resolveRound(lastTrickWinner: PlayerPosition) {
+    this.phase = 'ROUND_OVER';
+    const contract = this.auction.currentContract!;
+    const declarerTeam: Team = this.auction.declarer === 'SOUTH' || this.auction.declarer === 'NORTH' ? 'NORTH_SOUTH' : 'EAST_WEST';
+    const defenderTeam: Team = declarerTeam === 'NORTH_SOUTH' ? 'EAST_WEST' : 'NORTH_SOUTH';
+
+    let rawPointsNS = 0;
+    let rawPointsEW = 0;
+
+    // Presmyatane na tochkite ot kartite
+    for (const trick of this.tricksWon.NORTH_SOUTH) {
+      for (const tc of trick) rawPointsNS += this.getCardPoints(tc.card, contract);
+    }
+    for (const trick of this.tricksWon.EAST_WEST) {
+      for (const tc of trick) rawPointsEW += this.getCardPoints(tc.card, contract);
+    }
+
+    // Posledno 10 (pri Bez koz se udvoqva do 20)
+    const last10Points = contract === 'NO_TRUMP' ? 20 : 10;
+    if (lastTrickWinner === 'SOUTH' || lastTrickWinner === 'NORTH') {
+      rawPointsNS += last10Points;
+    } else {
+      rawPointsEW += last10Points;
+    }
+
+    // Kapo (Valat) - vzetii vsichki 8 ruce -> +90 tochki
+    const isKapNS = this.tricksWon.NORTH_SOUTH.length === 8;
+    const isKapEW = this.tricksWon.EAST_WEST.length === 8;
+    if (isKapNS) rawPointsNS += 90;
+    if (isKapEW) rawPointsEW += 90;
+
+    const totalNS = rawPointsNS;
+    const totalEW = rawPointsEW;
+
+    let outcomeText = 'ИЗКАРАНА';
+    let addedNS = 0;
+    let addedEW = 0;
+
+    const declarerScore = declarerTeam === 'NORTH_SOUTH' ? totalNS : totalEW;
+    const defenderScore = declarerTeam === 'NORTH_SOUTH' ? totalEW : totalNS;
+
+    // Pravila za zakruglyane i izhod
+    if (declarerScore > defenderScore) {
+      outcomeText = 'ИЗКАРАНА';
+      addedNS = this.roundPoints(totalNS, contract, totalNS > totalEW);
+      addedEW = this.roundPoints(totalEW, contract, totalEW > totalNS);
+
+      if (this.pendingHangingPoints > 0) {
+        if (declarerTeam === 'NORTH_SOUTH') addedNS += this.pendingHangingPoints;
+        else addedEW += this.pendingHangingPoints;
+        this.pendingHangingPoints = 0;
+      }
+    } else if (declarerScore < defenderScore) {
+      outcomeText = 'ВЪТРЕ';
+      const allPoints = totalNS + totalEW;
+      const roundedAll = this.roundPoints(allPoints, contract, true);
+      if (declarerTeam === 'NORTH_SOUTH') {
+        addedNS = 0;
+        addedEW = roundedAll + this.pendingHangingPoints;
+      } else {
+        addedEW = 0;
+        addedNS = roundedAll + this.pendingHangingPoints;
+      }
+      this.pendingHangingPoints = 0;
+    } else {
+      // Visyashta igra (Ravenstvo)
+      outcomeText = 'ВИСЯЩА';
+      const half = defenderScore;
+      const roundedHalf = this.roundPoints(half, contract, false);
+      if (declarerTeam === 'NORTH_SOUTH') {
+        addedNS = 0;
+        addedEW = roundedHalf;
+        this.pendingHangingPoints += roundedHalf;
+      } else {
+        addedEW = 0;
+        addedNS = roundedHalf;
+        this.pendingHangingPoints += roundedHalf;
+      }
+    }
+
+    // Mnogokratno uvelichenie pri Kontra i Rekontra
+    if (this.auction.isRedoubled) {
+      addedNS *= 4;
+      addedEW *= 4;
+    } else if (this.auction.isDoubled) {
+      addedNS *= 2;
+      addedEW *= 2;
+    }
+
+    this.scores.NORTH_SOUTH += addedNS;
+    this.scores.EAST_WEST += addedEW;
+
+    this.roundSummary = {
+      contractTitle: CONTRACT_TITLES[contract] || contract,
+      declarerName: this.seats[this.auction.declarer!].name,
+      declarerPosition: this.auction.declarer!,
+      handPointsNS: rawPointsNS,
+      handPointsEW: rawPointsEW,
+      totalPointsNS: totalNS,
+      totalPointsEW: totalEW,
+      outcomeText,
+      scoreAddedNS: addedNS,
+      scoreAddedEW: addedEW,
+    };
+
+    this.dealer = NEXT_POSITION[this.dealer];
+    this.broadcast();
+
+    // Avtomatichen start na sledvashtiya rund sled 8 sekundi
+    setTimeout(() => {
+      this.startRound();
+    }, 8000);
+  }
+
+  getCardPoints(card: Card, contract: ContractType): number {
+    if (contract === 'NO_TRUMP') {
+      return NON_TRUMP_POINTS[card.rank] * 2;
+    }
+    if (contract === 'ALL_TRUMP') {
+      return TRUMP_POINTS[card.rank];
+    }
+    return card.suit === contract ? TRUMP_POINTS[card.rank] : NON_TRUMP_POINTS[card.rank];
+  }
+
+  roundPoints(points: number, contract: ContractType, isHigher: boolean): number {
+    const base = Math.floor(points / 10);
+    const rem = points % 10;
+
+    if (contract === 'ALL_TRUMP') {
+      // Pri Vsichko koz tochkite zavurshvat na 8; pri rem === 4 po-slabiya zakruglya nagore
+      if (rem > 4) return base + 1;
+      if (rem === 4) return isHigher ? base : base + 1;
+      return base;
+    }
+
+    if (contract === 'NO_TRUMP') {
+      // Pri Bez koz tochkite sa chetni (udvoeni)
+      return rem >= 5 ? base + 1 : base;
+    }
+
+    // Boya: 162 tochki. Po-slabiya ot 6 nagore, po-silniya ot 7 nagore
+    if (isHigher) {
+      return rem >= 7 ? base + 1 : base;
+    } else {
+      return rem >= 6 ? base + 1 : base;
+    }
+  }
+
+  /**
+   * Hard-lock zashtita: Ako mqstoto e na chovek, botat NIKOGA ne igrae!
+   */
+  scheduleBotAction() {
+    if (this.botTimeoutId) {
+      clearTimeout(this.botTimeoutId);
+      this.botTimeoutId = null;
+    }
+
+    const currentSeat = this.seats[this.currentPlayer];
+    // STRIKTNO: Ako sedalkata e zaeta ot chovek, serverut spira i chaka klienta!
+    if (currentSeat && currentSeat.isTaken && !currentSeat.isBot) {
+      return;
+    }
+
+    // Ako e bot, izpulnqva deystvie sled kratko zabavlenie
+    this.botTimeoutId = setTimeout(() => {
+      this.executeBotAction();
+    }, 900);
+  }
+
+  executeBotAction() {
+    if (this.phase === 'CUTTING') {
+      this.cutDeck(16);
+      return;
+    }
+
+    if (this.phase === 'BIDDING') {
+      this.makeBid(this.currentPlayer, 'PASS');
+      return;
+    }
+
+    if (this.phase === 'PLAYING') {
+      const hand = this.hands[this.currentPlayer];
+      if (hand.length > 0) {
+        this.playCard(this.currentPlayer, hand[0]);
+      }
+    }
+  }
 }
 
+// Initsializirane na WebSocket survura
 const PORT = Number(process.env.PORT) || 8080;
 const wss = new WebSocketServer({ port: PORT });
+const rooms: Record<string, BelotRoom> = {};
 
-const rooms = new Map<string, BelotRoom>();
-const clientToRoom = new Map<WebSocket, string>();
-const clientToPosition = new Map<WebSocket, PlayerPosition>();
-
-function getOrCreateRoom(roomId: string = 'PUBLIC'): BelotRoom {
-  const cleanId = (roomId || 'PUBLIC').toUpperCase().trim();
-  let r = rooms.get(cleanId);
-  if (!r) {
-    r = new BelotRoom(cleanId);
-    rooms.set(cleanId, r);
+function getOrCreateRoom(roomId: string): BelotRoom {
+  const id = (roomId || 'PUBLIC').toUpperCase().trim();
+  if (!rooms[id]) {
+    rooms[id] = new BelotRoom(id);
   }
-  return r;
+  return rooms[id];
 }
 
-function broadcastRoom(roomId: string) {
-  const room = rooms.get(roomId);
-  if (!room) return;
+wss.on('connection', (ws: WebSocket) => {
+  let userRoom: BelotRoom = getOrCreateRoom('PUBLIC');
+  let userSeat: PlayerPosition | null = null;
 
-  wss.clients.forEach(ws => {
-    if (ws.readyState === WebSocket.OPEN && clientToRoom.get(ws) === roomId) {
-      const pos = clientToPosition.get(ws);
-      const payload = room.getPayloadFor(pos);
-      ws.send(JSON.stringify({ 
-        type: 'GAME_STATE_UPDATE', 
-        payload: { 
-          ...payload, 
-          myPosition: pos || null 
-        } 
-      }));
-    }
-  });
-
-  handleBotNextAction(room);
-}
-
-function handleBotNextAction(room: BelotRoom) {
-  room.cancelBotAction();
-  if (room.isResolvingTrick || room.phase === 'ROUND_OVER' || room.phase === 'LOBBY') return;
-
-  const currentSeat = room.seats[room.currentPlayer];
-  // 100% ZALYUCHENIE: AKO SEDALKATA E NA REALEN CHOVEK S RABOTESHT SOKET, BOTUT NIKOGA NE PIPA!
-  if (!currentSeat.isBot && currentSeat.ws && currentSeat.ws.readyState === WebSocket.OPEN) {
-    return;
-  }
-
-  if (room.phase === 'CUTTING') {
-    room.botActionTimer = setTimeout(() => {
-      const cutterSeat = room.seats[room.cutter];
-      if (cutterSeat.isBot || !cutterSeat.ws || cutterSeat.ws.readyState !== WebSocket.OPEN) {
-        room.cutDeck(16);
-        broadcastRoom(room.roomId);
-      }
-    }, 1100);
-    return;
-  }
-
-  if (room.phase === 'BIDDING') {
-    room.botActionTimer = setTimeout(() => {
-      const curSeat = room.seats[room.currentPlayer];
-      if (curSeat.isBot || !curSeat.ws || curSeat.ws.readyState !== WebSocket.OPEN) {
-        const hand = room.hands[room.currentPlayer];
-        const hasJacks = hand.filter(c => c.rank === 'J').length;
-        const hasAces = hand.filter(c => c.rank === 'A').length;
-
-        if (!room.auction.currentContract && (hasJacks >= 2 || hasAces >= 2)) {
-          room.makeBid(room.currentPlayer, 'CONTRACT', 'ALL_TRUMP');
-        } else {
-          room.makeBid(room.currentPlayer, 'PASS');
-        }
-        broadcastRoom(room.roomId);
-      }
-    }, 1200);
-    return;
-  }
-
-  if (room.phase === 'PLAYING') {
-    room.botActionTimer = setTimeout(() => {
-      const curSeat = room.seats[room.currentPlayer];
-      if (curSeat.isBot || !curSeat.ws || curSeat.ws.readyState !== WebSocket.OPEN) {
-        const botPos = room.currentPlayer;
-        const botCards = room.hands[botPos];
-
-        if (!botCards || botCards.length === 0) return;
-
-        const validCards = botCards.filter(c => room.isCardValidForPlay(botPos, c));
-        const chosenCard = validCards.length > 0 ? validCards[0] : botCards[0];
-
-        room.playCard(botPos, chosenCard);
-        broadcastRoom(room.roomId);
-      }
-    }, 1300);
-  }
-}
-
-
-wss.on('connection', ws => {
-  const defaultRoom = getOrCreateRoom('PUBLIC');
-  clientToRoom.set(ws, 'PUBLIC');
-  ws.send(JSON.stringify({ 
-    type: 'GAME_STATE_UPDATE', 
-    payload: { ...defaultRoom.getPayloadFor(undefined), myPosition: null } 
-  }));
-
-  ws.on('message', rawMsg => {
+  ws.on('message', (messageRaw: string) => {
     try {
-      const data = JSON.parse(rawMsg.toString());
-      const currentRoomId = clientToRoom.get(ws) || 'PUBLIC';
-      const room = getOrCreateRoom(currentRoomId);
+      const msg = JSON.parse(messageRaw);
 
-      switch (data.type) {
-        case 'JOIN_ROOM': {
-          const newRoomId = (data.payload.roomId || 'PUBLIC').toUpperCase().trim();
-          
-          const oldPos = clientToPosition.get(ws);
-          if (oldPos && room.seats[oldPos].ws === ws) {
-            room.seats[oldPos] = { name: 'Свободно', isBot: true };
-          }
+      if (msg.type === 'JOIN_ROOM') {
+        userRoom = getOrCreateRoom(msg.payload.roomId);
+        ws.send(JSON.stringify({
+          type: 'GAME_STATE_UPDATE',
+          payload: userRoom.getGameStateForPlayer('SOUTH')
+        }));
+      }
 
-          clientToRoom.set(ws, newRoomId);
-          clientToPosition.delete(ws);
-          const targetRoom = getOrCreateRoom(newRoomId);
-
-          if (targetRoom.getHumanCount() === 0) {
-            targetRoom.resetRoomToFreshGame();
-          }
-
-          broadcastRoom(currentRoomId);
-          broadcastRoom(newRoomId);
-          break;
+      if (msg.type === 'JOIN_SEAT') {
+        const { name, position } = msg.payload as { name: string; position: PlayerPosition };
+        if (userRoom.seats[position].isTaken && !userRoom.seats[position].isBot) {
+          ws.send(JSON.stringify({ type: 'SEAT_TAKEN_ERROR', message: 'Мястото вече е заето!' }));
+          return;
         }
 
-        case 'START_WITH_BOTS': {
-          if (room.phase === 'LOBBY') {
-            room.startGameWithCurrentOrBots();
-            broadcastRoom(room.roomId);
-          }
-          break;
+        userSeat = position;
+        userRoom.seats[position] = { name, isBot: false, isTaken: true, ws };
+        userRoom.broadcast();
+
+        if (userRoom.getHumanCount() === 4 && userRoom.phase === 'LOBBY') {
+          userRoom.startNewGame();
         }
+      }
 
-        case 'RESET_ROOM': {
-          room.resetRoomToFreshGame();
-          broadcastRoom(room.roomId);
-          break;
+      if (msg.type === 'START_WITH_BOTS') {
+        if (userRoom.phase === 'LOBBY') {
+          // Zapulvane na svobodnite mesta s botove
+          for (const pos of ['SOUTH', 'NORTH', 'EAST', 'WEST'] as PlayerPosition[]) {
+            if (!userRoom.seats[pos].isTaken) {
+              userRoom.seats[pos] = { name: `Бот (${pos})`, isBot: true, isTaken: true };
+            }
+          }
+          userRoom.startNewGame();
         }
+      }
 
-        case 'JOIN_SEAT': {
-          const { name, position } = data.payload as { name: string; position: PlayerPosition };
+      if (msg.type === 'RESET_ROOM') {
+        userRoom.scores = { NORTH_SOUTH: 0, EAST_WEST: 0 };
+        userRoom.pendingHangingPoints = 0;
+        userRoom.startRound();
+      }
 
-          if (!room.seats[position].isBot && room.seats[position].ws && room.seats[position].ws !== ws && room.seats[position].ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'SEAT_TAKEN_ERROR', message: 'Мястото вече е заето от друг играч!' }));
-            return;
-          }
+      if (msg.type === 'CUT_DECK') {
+        userRoom.cutDeck(msg.payload.cutIndex);
+      }
 
-          const prev = clientToPosition.get(ws);
-          if (prev && prev !== position) {
-            room.seats[prev] = { name: 'Свободно', isBot: true };
-          }
-
-          room.seats[position] = { 
-            name: name.trim() || 'Играч', 
-            isBot: false, 
-            ws 
-          };
-          clientToPosition.set(ws, position);
-          room.cancelBotAction();
-
-          if (room.phase === 'LOBBY' && room.getHumanCount() === 4) {
-            room.startNewRound();
-          }
-
-          broadcastRoom(room.roomId);
-          break;
+      if (msg.type === 'MAKE_BID') {
+        if (userSeat) {
+          userRoom.makeBid(userSeat, msg.payload.bidType, msg.payload.contract);
         }
+      }
 
-        case 'CUT_DECK': {
-          const p = clientToPosition.get(ws);
-          if (p && p === room.cutter && room.seats[p].ws === ws) {
-            room.cutDeck(data.payload.cutIndex);
-            broadcastRoom(room.roomId);
-          }
-          break;
-        }
-
-        case 'MAKE_BID': {
-          const p = clientToPosition.get(ws);
-          if (p && p === room.currentPlayer && room.seats[p].ws === ws) {
-            room.makeBid(p, data.payload.bidType, data.payload.contract);
-            broadcastRoom(room.roomId);
-          }
-          break;
-        }
-
-        case 'SUBMIT_DECLARATIONS': {
-          const p = clientToPosition.get(ws);
-          if (p && room.seats[p].ws === ws) {
-            room.addDeclarations(p, data.payload.declarations);
-            broadcastRoom(room.roomId);
-          }
-          break;
-        }
-
-        case 'PLAY_CARD': {
-          const p = clientToPosition.get(ws);
-          // SAMO AKO SOKETUT E TOCHNO NA IGRACHA, CHIITO RED E V MOMENTA!
-          if (p && p === room.currentPlayer && room.seats[p].ws === ws) {
-            room.playCard(p, data.payload.card);
-            broadcastRoom(room.roomId);
-          }
-          break;
+      if (msg.type === 'PLAY_CARD') {
+        if (userSeat) {
+          userRoom.playCard(userSeat, msg.payload.card);
         }
       }
     } catch (e) {
-      console.error(e);
+      console.error('Error handling message:', e);
     }
   });
 
   ws.on('close', () => {
-    const roomId = clientToRoom.get(ws);
-    const pos = clientToPosition.get(ws);
-    if (roomId && pos) {
-      const room = rooms.get(roomId);
-      if (room && room.seats[pos].ws === ws) {
-        room.seats[pos] = { name: 'Свободно', isBot: true };
-        room.cancelBotAction();
-
-        if (room.getHumanCount() === 0) {
-          room.resetRoomToFreshGame();
-        }
-
-        broadcastRoom(roomId);
-      }
+    if (userSeat && userRoom.seats[userSeat]) {
+      userRoom.seats[userSeat] = { name: 'Свободно', isBot: true, isTaken: false };
+      userRoom.broadcast();
     }
-    clientToRoom.delete(ws);
-    clientToPosition.delete(ws);
   });
 });
 
-console.log(`[Belot Fresh-Reset Multi-Room Server] Port ${PORT}`);
+console.log(`Belot.bg WebSocket Server is running on port ${PORT}`);
