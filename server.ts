@@ -717,6 +717,7 @@ function handleBotNextAction(room: BelotRoom) {
   }
 }
 
+
 wss.on('connection', ws => {
   const defaultRoom = getOrCreateRoom('PUBLIC');
   clientToRoom.set(ws, 'PUBLIC');
